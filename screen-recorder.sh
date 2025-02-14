@@ -119,6 +119,9 @@ fi
 if ! command -v wlr-randr >/dev/null ;then
   apt_install+=(wlr-randr)
 fi
+if ! command -v v4l2-ctl >/dev/null ;then
+  apt_install+=(v4l-utils)
+fi
 
 if [ ! -z "${apt_install[*]}" ];then
   status "Installing dependencies..."
@@ -259,7 +262,7 @@ if [ ! -z "$monitor" ];then
   if [ ! -z "$webcam" ];then
     recording_mode="screen + on-screen webcam feed"
     
-    mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
+    mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
     cleanup_commands+=$'\n'"kill $! 2>/dev/null"
   else
     recording_mode="screen only"
