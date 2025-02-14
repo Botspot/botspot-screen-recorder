@@ -52,12 +52,10 @@ list_webcams() { #/dev/video*\tpretty name
 list_monitors() { #HDMI-*\tpretty name
   #find valid, enabled displays
   local line
-  for line in $(ls /sys/class/drm) ;do
-    if [ -f /sys/class/drm/$line/enabled ] && [ "$(cat /sys/class/drm/$line/enabled)" == enabled ];then
-      #display is enabled, so return it
-      echo -n "$line"$'\t' | sed 's/card[0-9]*-//g'
-      echo "$line" | sed 's/card[0-9]*-//g' | sed 's/-[A-Z]-/ /g'
-    fi
+  for line in $(wlr-randr | grep -v '^ ' | awk '{print $1}') ;do
+    #display is enabled, so return it
+    echo -n "$line"$'\t'
+    echo "$line" | sed 's/-[A-Z]-/ /g ; s/-/ /g'
   done
 }
 
@@ -117,6 +115,9 @@ if ! command -v yad >/dev/null ;then
 fi
 if ! command -v g++ >/dev/null ;then
   apt_install+=(g++)
+fi
+if ! command -v wlr-randr >/dev/null ;then
+  apt_install+=(wlr-randr)
 fi
 
 if [ ! -z "${apt_install[*]}" ];then
