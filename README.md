@@ -8,7 +8,7 @@ Best all-in-one screen recording utility for Wayland
 Enough fiddling with all the other poorly optimized Wayland screen recorders missing critical features. BSR is better.  
 
 Currently, BSR can be used to:
-- Record the screen and webcam. The webcam feed can be paused, resized, and moved in real time. Double-click the webcam feed to toggle fullscreen.
+- Record the screen and webcam. The webcam feed is displayed in a window that is captured in the screen recording.
 - Record only the screen.
 - Record only the webcam.
 - Record only audio.
@@ -40,6 +40,14 @@ git clone https://github.com/Botspot/botspot-screen-recorder
 3. Stop the recording when done.
 4. Profit.
 5. Your settings are saved to `~/.config/botspot-screen-recorder.conf` for next time.
+
+### Tips for using the on-screen webcam feed
+- It can be paused. Just click the pause button in the middle of the window.
+- It can be resized and moved in real time. You can click and drag anywhere on the window to move it.
+- Double-click the webcam feed to toggle fullscreen. Press Escape to exit fullscreen.
+- To keep the webcam feed visible above other windows, use your Wayland compositor to do it.
+  - If you are using the LabWC compositor, press Alt+Space then click Always on Top.
+  - If you are using Wayfire I am not aware of an easy way to do this.
 
 ### Update to latest version
 ```
