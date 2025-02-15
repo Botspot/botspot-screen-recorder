@@ -16,8 +16,9 @@ Currently, BSR can be used to:
 - Choose what area of the screen to record (crop feature)
 - Downscale the recorded screen by a factor of 2. For example, a 1920x1080 screen can be encoded as a 960x540 video file to reduce filesize and CPU usage.
 
-![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/e904c7cb-cd17-440c-acee-5f91a058946f)
-![20250214_07h25m33s_grim](https://github.com/user-attachments/assets/85b010e0-c973-4db9-b14f-3561c8b36f6f)
+![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/13bd37ee-caf4-41cd-b6da-44ac329c73e6)  
+![20250214_21h52m07s_grim](https://github.com/user-attachments/assets/2a4be825-a981-4a59-883c-47c6dc4bfe16)
+
 ### Supported systems:
 - Anything running Wayland. X11 is not supported. Go use SimpleScreenRecorder on X11.
 - For audio capture, your system needs to be running PipeWire on top of Pulseaudio. If your system only uses Pulseaudio, contact me and I can try to see how possible it is to add support for your setup. It should be easy.
