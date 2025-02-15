@@ -85,12 +85,6 @@ else
   geometry=''
 fi
 
-slurp_function() { #populate the crop field with the output from slurp
-  echo -n 4:
-  slurp
-}
-export -f slurp_function
-
 apt_install=()
 if ! command -v slurp >/dev/null ;then
   apt_install+=(slurp)
@@ -140,6 +134,12 @@ if [ ! -f /usr/local/bin/wf-recorder ] || [ "$(echo -e "0.5.0\n$(wf-recorder -v 
   sudo ninja -C build install || error "failed to run sudo ninja -C build install for wf-recorder"
 fi
 
+slurp_function() { #populate the crop field with the output from slurp
+  echo -n 4:
+  slurp
+}
+export -f slurp_function
+#main configuration window
 output="$(yad "${yadflags[@]}" --form \
   --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
   --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$//')" \
@@ -152,7 +152,7 @@ output="$(yad "${yadflags[@]}" --form \
   --field='Microphone::CB' "$(list_microphones | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$microphone" | tr '\n' '!' | sed 's/!$//')" \
   --field='Record system audio:CHK' "$sysaudio_enabled" \
   --field="Output file::SFL" "$output_file" \
-  --button=Next!go-next:0)" || exit 0
+  --button="Start recording"!media-record:0)" || exit 0
 
 output="$(echo "$output" | grep -vF 'Opening in existing browser session.')" #workaround chromium output from donate button shifting everything down a line
 
@@ -193,13 +193,14 @@ ffmpeg_resolution_flag=()
 
 #parse inputs - webcam mirror
 if [ "$mirror_enabled" == TRUE ];then
-  #mpv_flags+=(--vf=hflip)
   hflip_flag=(-vf hflip)
 fi
 
 #parse inputs - fps
 if [ "$fps" != maximum ];then
   recorder_flags+=(-B "$fps" -r "$fps")
+  
+  mpv_flags+=(--vf=fps=1) #also limit webcam fps
 fi
 
 #parse inputs - monitor
