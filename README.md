@@ -26,7 +26,8 @@ BSR has flexible input sources.
 
 ### Screenshots:
 ![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/13bd37ee-caf4-41cd-b6da-44ac329c73e6)  
-![20250214_21h52m07s_grim](https://github.com/user-attachments/assets/2a4be825-a981-4a59-883c-47c6dc4bfe16)
+![20250214_21h52m07s_grim](https://github.com/user-attachments/assets/98e93cd5-e1d2-4b29-a862-587b6f10ac77)
+
 
 ### Supported systems:
 - Any distro using a [Wayland wlroots-based compositor](https://github.com/solarkraft/awesome-wlroots?tab=readme-ov-file#compositors).
