@@ -30,7 +30,7 @@ list_webcams() { #/dev/video*\tpretty name
   local line
   local word
   local resolution
-  for line in $(v4l2-ctl --list-devices | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -v pispbe) ;do
+  for line in $(v4l2-ctl --list-devices 2>/dev/null | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -v pispbe) ;do
     local IFS=$'\t'
     #echo "line: $line"
     for word in $line ;do
@@ -137,6 +137,7 @@ fi
 slurp_function() { #populate the crop field with the output from slurp
   echo -n 4:
   slurp
+  true
 }
 export -f slurp_function
 #main configuration window
@@ -223,35 +224,38 @@ if [ ! -z "$geometry" ];then
   recorder_flags+=(-g "$geometry")
 fi
 
-#make a custom pulseaudio sink that merges microphone and system audio
-device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
-device2=''
-device3=''
-if [ ! -z "$microphone" ];then
-  #if capturing microphone, set its input volume to 100%
-  pactl set-source-volume "$microphone" 100% || error "failed to set microphone volume"
-  
-  #make it an input to this pulseaudio loopback device
-  if [ ! -z "$monitor" ];then
-    #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
-    device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
-  else
-    #not screen recording, so don't add latency
-    device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix)"
+#audio handling, if enabled
+if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+  #make a custom pulseaudio sink that merges microphone and system audio
+  device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
+  device2=''
+  device3=''
+  if [ ! -z "$microphone" ];then
+    #if capturing microphone, set its input volume to 100%
+    pactl set-source-volume "$microphone" 100% || error "failed to set microphone volume"
+    
+    #make it an input to this pulseaudio loopback device
+    if [ ! -z "$monitor" ];then
+      #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
+      device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
+    else
+      #not screen recording, so don't add latency
+      device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix)"
+    fi
   fi
+  
+  if [ "$sysaudio_enabled" == TRUE ];then
+    #if capturing system audio, make it an input to this pulseaudio monitor device
+    device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=virtual_mix)"
+    #This captures system audio always at 100% regardless of system volume. Bug or feature? You decide.
+  fi
+  
+  #make sure to remove these virtual audio devices on script exit
+  cleanup_commands="pactl unload-module $device1 2>/dev/null
+  pactl unload-module $device2 2>/dev/null
+  pactl unload-module $device3 2>/dev/null"
+  trap "$cleanup_commands" EXIT
 fi
-
-if [ "$sysaudio_enabled" == TRUE ];then
-  #if capturing system audio, make it an input to this pulseaudio monitor device
-  device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=virtual_mix)"
-  #This captures system audio always at 100% regardless of system volume. Bug or feature? You decide.
-fi
-
-#make sure to remove these virtual audio devices on script exit
-cleanup_commands="pactl unload-module $device1 2>/dev/null
-pactl unload-module $device2 2>/dev/null
-pactl unload-module $device3 2>/dev/null"
-trap "$cleanup_commands" EXIT
 
 #ensure containing directory for output file
 mkdir -p "$(dirname "$output_file")"
@@ -292,7 +296,26 @@ status "BSR recording mode: $recording_mode"
 cleanup_commands+=$'\n'"kill $recorder_pid 2>/dev/null"
 trap "$cleanup_commands" EXIT
 
+mute_function() { #handle mute button click events - get current state from the label, then change the label to the other state while toggling mute
+  if [ "$1" == unmuted ];then
+    pactl set-sink-mute "virtual_mix" 1
+    echo -n 2:muted
+  else
+    pactl set-sink-mute "virtual_mix" 0
+    echo -n 2:unmuted
+  fi
+}
+export -f mute_function
+
+mute_function=()
+if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+  #audio enabled, add mute button
+  mute_function=(--field='Toggle mute!audio-input-mic-muted':FBTN '@bash -c "mute_function %2"' \
+  --field=:RO 'unmuted')
+fi
+
 yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecording $recording_mode" \
-  --image=media-record --image-on-top \
-  --form --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons
+  --image=media-record --image-on-top --form \
+  "${mute_function[@]}" \
+  --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons
 kill $recorder_pid
