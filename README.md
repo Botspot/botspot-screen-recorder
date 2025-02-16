@@ -1,21 +1,30 @@
 # Botspot's Screen Recorder (BSR)
-Best all-in-one screen recording utility for wlroots-based Wayland compoaitors like Wayfire, LabWC and Sway.
+Best all-in-one GUI screen recording utility for wlroots-based Wayland compositors like Wayfire, LabWC and Sway.
 - Super lightweight
 - Just one shell script
 - Aligns with KISS principles
-- Optimized for low-spec Single Board Computers that lack GPU-accelerated video encoding
+- Optimized for hardware like Raspberry Pi that lacks GPU-accelerated video encoding
 
 Enough fiddling with the other poorly maintained screen recorders missing critical features. BSR is better.  
 
-Currently, BSR can be used to:
-- Record the screen and webcam. The webcam feed is displayed in a window that is captured in the screen recording. (see screenshot below)
-- Record only the screen.
-- Record only the webcam. This mode firectly uses ffmpeg.
-- Record only audio.
-- Capture both the system's speaker output and microphone input, or any combination of the two.
-- Choose what area of the screen to record (crop feature)
-- Downscale the recorded screen by a factor of 2. For example, a 1920x1080 screen can be encoded as a 960x540 video file to reduce filesize and CPU usage.
+BSR has flexible input sources.
+- Video sources:
+  - Record the screen and webcam. The webcam feed is displayed in a window that is captured in the screen recording.
+  - Record only the screen.
+  - Record only the webcam directly using ffmpeg.
+  - Record no video. (only audio)
+- Audio sources:
+  - Capture both system output audio and microphone input.
+  - Capture only system audio.
+  - Capture only microphone input.
+  - Capture no audio. (only video)
+- Video processing options:
+  - Record a user-selected section of the screen. (crop feature)
+  - Mirror the webcam feed.
+  - Limit the screen recording frame rate.
+  - Downscale the recorded screen by a factor of 2. For example, a 1920x1080 screen can be encoded as a 960x540 video file to reduce filesize and CPU usage.
 
+### Screenshots:
 ![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/13bd37ee-caf4-41cd-b6da-44ac329c73e6)  
 ![20250214_21h52m07s_grim](https://github.com/user-attachments/assets/2a4be825-a981-4a59-883c-47c6dc4bfe16)
 
