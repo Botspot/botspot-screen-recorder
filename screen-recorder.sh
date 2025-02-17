@@ -70,12 +70,51 @@ favor_option() { #given a list of options on stdin, favor $1 if found
   echo "$input" | grep -vxF "$1"
 }
 
+unique_filename() { #given a file $1, add a number before the file extension to make it unique
+  #this function may seem unnecessarily complex. It is. But it has to be.
+  #I want it to handle an incomplete sequence of pre-existing filenames correctly - not filling in the first gap but instead continuing the sequence from the greatest one.
+  #also it should leave filenames that don't exist unchanged
+  #and add an appropriate numeric suffix otherwise.
+  local basename="${1##*/}" #filename without full paths
+  local file_extension="${basename##*.}" #just the file extension
+  local rawname="${basename%.*}" #basename without file extension
+  local dirname="${1%/*}" #directory containing file
+  
+  #if numeric suffix already in filename, split it out
+  local number="${rawname##*[!0-9]}"
+  local name_no_number="${rawname%$number}" #part of basename without the number suffix
+  
+  #if no number in filename, and file exists, add number
+  if [ -z "$number" ] && [ ! -f "${dirname}/${name_no_number}.${file_extension}" ];then
+    #no number given, and file does not exist, so return that filename unchanged
+    echo "$1"
+    return 0
+  fi
+  
+  #echo -e "basename: $basename\nfile_extension: $file_extension\nrawname: $rawname\ndirname: $dirname\nnumber: $number\nname_no_number: $name_no_number"
+  
+  #find the last file in the numeric sequence
+  local lastfile="$(find "$dirname" -type f -regex ".*/${name_no_number}[0-9][0-9]*\.${file_extension}" | sort -V | tail -1)"
+  #this could be empty, if $1 has no number, and that file exists, then we should assign the number 1
+  [ -z "$lastfile" ] && lastfile="${dirname}/${name_no_number}0.${file_extension}"
+  #echo "lastfile: $lastfile"
+  
+  #now determine what the next file in the sequence would be
+  basename="${lastfile##*/}" #filename without full paths
+  rawname="${basename%.*}" #basename without file extension
+  number="${rawname##*[!0-9]}"
+  name_no_number="${rawname%$number}" #part of basename without the number suffix
+  
+  #return new filename that continues the sequence and does not exist
+  echo "${dirname}/${name_no_number}$((number+1)).${file_extension}"
+}
+
 #get options used last time
 if [ -f ~/.config/botspot-screen-recorder.conf ];then
   source ~/.config/botspot-screen-recorder.conf
   
   #replace $HOME with ~/ in output_file
-  output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
+  output_file="$(unique_filename "$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")")"
 else
   #set default values for what needs it
   downscale_enabled=FALSE
@@ -84,6 +123,7 @@ else
   output_file="~/Videos/recording.mkv"
   geometry=''
 fi
+output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
 
 apt_install=()
 if ! command -v slurp >/dev/null ;then
@@ -141,7 +181,7 @@ slurp_function() { #populate the crop field with the output from slurp
 }
 export -f slurp_function
 #main configuration window
-output="$(yad "${yadflags[@]}" --form \
+output="$(yad "${yadflags[@]}" --form --align=center \
   --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
   --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$//')" \
   --field='Downscale screen 2X':CHK "$downscale_enabled" \
@@ -166,7 +206,7 @@ mirror_enabled="$(echo "$output" | sed -n 7p)"
 microphone="$(echo "$output" | sed -n 8p)"
 sysaudio_enabled="$(echo "$output" | sed -n 9p)"
 output_file="$(echo "$output" | sed -n 10p)"
-[ -z "$output_file" ] && output_file="~/Videos/recording.mkv"
+[ -z "$output_file" ] && output_file="$(unique_filename "$HOME/Videos/recording.mkv")"
 
 #save gui selected values to conf file before making them machine readible
 echo "monitor='$monitor'
