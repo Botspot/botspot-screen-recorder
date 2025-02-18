@@ -7,19 +7,19 @@ Best all-in-one GUI screen recording utility for wlroots-based Wayland composito
 
 Enough fiddling with the other poorly maintained screen recorders missing critical features. BSR is better.  
 
-BSR has flexible input sources.
-- Video sources:
+BSR has flexible operation modes.
+- Video source options:
   - Record the screen and webcam. The webcam feed is displayed in a window that is captured in the screen recording.
   - Record only the screen.
   - Record only the webcam directly using ffmpeg.
   - Record no video. (only audio)
-- Audio sources:
+- Audio source options:
   - Capture both system output audio and microphone input.
   - Capture only system audio.
   - Capture only microphone input.
   - Capture no audio. (only video)
 - Video processing options:
-  - Record a user-selected section of the screen. (crop feature)
+  - Record a fixed rectanglular section of the screen. (crop feature)
   - Mirror the webcam feed.
   - Limit the screen recording frame rate.
   - Downscale the recorded screen by a factor of 2. For example, a 1920x1080 screen can be encoded as a 960x540 video file to reduce filesize and CPU usage.
