@@ -162,7 +162,7 @@ if [ ! -z "${apt_install[*]}" ];then
   sudo apt install -y "${apt_install[@]}" || error "dependency installation failed"
 fi
 
-#install wf-recorder
+#install wf-recorder >= 0.5.0
 if ! command -v wf-recorder >/dev/null || [ "$(echo -e "0.5.0\n$(wf-recorder -v | awk '{print $2}')" | sort -V | head -n1)" != 0.5.0 ];then
   status "Compiling wf-recorder..."
   sudo apt install -y wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev || error "dependency installation failed"
@@ -172,6 +172,24 @@ if ! command -v wf-recorder >/dev/null || [ "$(echo -e "0.5.0\n$(wf-recorder -v 
   meson setup build --prefix=/usr/local --buildtype=release || error "failed to run meson build for wf-recorder"
   ninja -C build || error "failed to run ninja -C build for wf-recorder"
   sudo ninja -C build install || error "failed to run sudo ninja -C build install for wf-recorder"
+fi
+
+#add menu launcher
+if [ ! -f ~/.local/share/applications/bsr.desktop ];then
+  mkdir -p ~/.local/share/applications
+  echo "[Desktop Entry]
+Version=1.0
+Name=Botspot Screen Recorder
+GenericName=Screen/Webcam Recording Software
+Comment=Screen/Webcam/Audio Recorder for Wayland
+Exec=$0
+Icon=media-record
+Terminal=false
+Type=Application
+Categories=AudioVideo;Recorder;
+StartupNotify=true
+StartupWMClass=media-record" > ~/.local/share/applications/bsr.desktop
+  echo "Created menu launcher file at ~/.local/share/applications/bsr.desktop"
 fi
 
 slurp_function() { #populate the crop field with the output from slurp
