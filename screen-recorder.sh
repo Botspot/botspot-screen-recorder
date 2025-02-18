@@ -19,10 +19,16 @@ list_microphones() { #technical name\tpretty name
   local sources="$(pactl list sources)" #avoid running this several times
   local names="$(echo "$sources" | grep 'Name: alsa_input' | awk '{print $2}')"
   local name
+  local found=
   for name in $names ;do
+    found=yes
     echo -n "$name"$'\t'
     echo "$sources" | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -F "Name: $name" | grep -o 'alsa.card_name = [^'$'\t]*' | awk -F'"' '{print $2}'
   done
+  
+  if [ -z "$found" ];then
+    echo #always output at least a newline
+  fi
 }
 
 list_webcams() { #/dev/video*\tpretty name
@@ -30,6 +36,7 @@ list_webcams() { #/dev/video*\tpretty name
   local line
   local word
   local resolution
+  local found=
   for line in $(v4l2-ctl --list-devices 2>/dev/null | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -v pispbe) ;do
     local IFS=$'\t'
     #echo "line: $line"
@@ -41,22 +48,33 @@ list_webcams() { #/dev/video*\tpretty name
           #device valid, return it for each supported resolution
           IFS=$'\n'
           for resolution in $(list_resolutions "$word") ;do
+            found=yes
             echo "$word"$'\t'"$(echo "$v4l2_output" | grep 'Card type' | awk -F': ' '{print $2}') $(echo "$resolution" | awk -F'\t' '{print $2}')"
           done
         fi
       fi
     done
   done
+  
+  if [ -z "$found" ];then
+    echo #always output at least a newline
+  fi
 }
 
 list_monitors() { #HDMI-*\tpretty name
   #find valid, enabled displays
   local line
+  local found=
   for line in $(wlr-randr | grep -v '^ ' | awk '{print $1}') ;do
+    found=yes
     #display is enabled, so return it
     echo -n "$line"$'\t'
     echo "$line" | sed 's/-[A-Z]-/ /g ; s/-/ /g'
   done
+  
+  if [ -z "$found" ];then
+    echo #always output at least a newline
+  fi
 }
 
 list_resolutions() { #list handpicked subset of resolutions supported by given webcam: ###x###\tpretty name
@@ -198,17 +216,18 @@ slurp_function() { #populate the crop field with the output from slurp
   true
 }
 export -f slurp_function
+
 #main configuration window
 output="$(yad "${yadflags[@]}" --form --align=center \
   --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
-  --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$//')" \
+  --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field='Downscale screen 2X':CHK "$downscale_enabled" \
-  --field="Screen recording FPS::CB" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$//')" \
+  --field="Screen recording FPS::CB" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field="Crop boundaries::RO" "$geometry" \
   --field="Set crop boundaries:FBTN" '@bash -c slurp_function' \
-  --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$//')" \
+  --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field="Mirror webcam:CHK" "$mirror_enabled" \
-  --field='Microphone::CB' "$(list_microphones | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$microphone" | tr '\n' '!' | sed 's/!$//')" \
+  --field='Microphone::CB' "$(list_microphones | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$microphone" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field='Record system audio:CHK' "$sysaudio_enabled" \
   --field="Output file::SFL" "$output_file" \
   --button="Start recording"!media-record:0)" || exit 0
