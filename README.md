@@ -38,6 +38,7 @@ BSR has flexible input sources.
 git clone https://github.com/Botspot/botspot-screen-recorder
 ./botspot-screen-recorder/screen-recorder.sh
 ```
+On first run, BSR adds a convenient launcher to the start menu. To remove it from the start menu, run `rm ~/.local/share/applications/bsr.desktop`
 
 ### Debian packages to install:
 None. The script installs them for you. For the sake of completeness, here they are: (most of these are just used to compile wf-recorder)
