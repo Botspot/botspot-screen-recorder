@@ -1,11 +1,14 @@
 # Botspot's Screen Recorder (BSR)
-Best all-in-one GUI screen recording utility for wlroots-based Wayland compositors like Wayfire, LabWC and Sway.
+All-in-one screen recording utility for wlroots Wayland compositors like Wayfire, LabWC and Sway.  
+[![badge](https://github.com/Botspot/pi-apps/blob/master/icons/badge.png?raw=true)](https://github.com/Botspot/pi-apps)  
+Botspot Screen Recorder (BSR) makes it easy to record the screen on Wayland Pi OS. Without this, the only real option was to use the `wf-recorder` command-line tool, which was quite limited in features.  
+BSR does use `wf-recorder` in some modes, but it can also record the webcam and the screen at the same time in a "streaming gamer" style. The webcam feed is displayed as a window on the desktop to be captured with the rest of the screen, and it can be stretched and moved in real time. BSR also supports capturing the microphone and system audio both at once, so perfect for making any sort of Linux usage tutorials without needing to buy a physical HDMI capture card.  
+Of course, video encoding does use some CPU/GPU resources. There is no way around that, but BSR has been optimized as much as possible, also offering downscaling and framerate limiting to help reduce resource usage even further.  
+BSR is:
 - Super lightweight
 - Just one shell script
-- Aligns with KISS principles
+- Aligned with KISS principles
 - Optimized for hardware like Raspberry Pi that lacks GPU-accelerated video encoding
-
-Enough fiddling with the other poorly maintained screen recorders missing critical features. BSR is better.  
 
 BSR has flexible operation modes.
 - Video source options:
