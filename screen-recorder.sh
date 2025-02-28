@@ -210,6 +210,9 @@ StartupWMClass=media-record" > ~/.local/share/applications/bsr.desktop
   echo "Created menu launcher file at ~/.local/share/applications/bsr.desktop"
 fi
 
+#exit now if given 'install' flag - for use in pi-apps
+[ "$1" == install ] && exit 0
+
 slurp_function() { #populate the crop field with the output from slurp
   echo -n 4:
   slurp
