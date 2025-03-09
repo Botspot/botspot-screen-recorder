@@ -354,7 +354,7 @@ if [ ! -z "$monitor" ];then
   fi
   
   #record screen
-  wf-recorder --audio=virtual_mix.monitor -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast -p crf=28 "${recorder_flags[@]}" &
+  wf-recorder --audio=virtual_mix.monitor -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast -p crf=$([ "$downscale_enabled" == TRUE ] && echo 10 || echo 28) "${recorder_flags[@]}" &
   recorder_pid=$!
   
 elif [ ! -z "$webcam" ];then
