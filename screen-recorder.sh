@@ -78,7 +78,7 @@ list_monitors() { #HDMI-*\tpretty name
 }
 
 list_resolutions() { #list handpicked subset of resolutions supported by given webcam: ###x###\tpretty name
-  v4l2-ctl --device=$1 --list-formats-ext | grep Size | sed 's/^.*Size: .* //g' | sort -u | sort -n | grep '640x480\|1280x720' | awk -Fx '{print $1"x"$2"\t"$2"p"}'
+  v4l2-ctl --device=$1 --list-formats-ext | grep Size | sed 's/^.*Size: .* //g' | sort -u | sort -n | grep '640x480\|1280x720\|1920x1080' | awk -Fx '{print $1"x"$2"\t"$2"p"}'
 }
 
 favor_option() { #given a list of options on stdin, favor $1 if found
@@ -225,7 +225,7 @@ output="$(yad "${yadflags[@]}" --form --align=center \
   --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
   --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field='Downscale screen 2X':CHK "$downscale_enabled" \
-  --field="Screen recording FPS::CB" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+  --field="Frame rate::CB" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field="Crop boundaries::RO" "$geometry" \
   --field="Set crop boundaries:FBTN" '@bash -c slurp_function' \
   --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
@@ -270,7 +270,7 @@ output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
 mpv_flags=()
 recorder_flags=()
 hflip_flag=()
-ffmpeg_resolution_flag=()
+ffmpeg_webcam_only_flags=()
 
 #parse inputs - webcam mirror
 if [ "$mirror_enabled" == TRUE ];then
@@ -280,8 +280,8 @@ fi
 #parse inputs - fps
 if [ "$fps" != maximum ];then
   recorder_flags+=(-B "$fps" -r "$fps")
-  
-  mpv_flags+=(--vf=fps=1) #also limit webcam fps
+  ffmpeg_webcam_only_flags+=(-framerate $fps)
+  mpv_flags+=(--vf=fps=$fps) #also limit webcam fps
 fi
 
 #parse inputs - monitor
@@ -347,7 +347,7 @@ if [ ! -z "$monitor" ];then
   if [ ! -z "$webcam" ];then
     recording_mode="screen + on-screen webcam feed"
     
-    mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
+    mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
     cleanup_commands+=$'\n'"kill $! 2>/dev/null"
   else
     recording_mode="screen only"
@@ -359,9 +359,30 @@ if [ ! -z "$monitor" ];then
   
 elif [ ! -z "$webcam" ];then
   recording_mode="webcam only"
+  #video only recording mode
+  rm -f /tmp/mjpeg_pipe
+  mkfifo /tmp/mjpeg_pipe || exit 1
   
-  ffmpeg -hide_banner -y -f v4l2 -i "$webcam" -f pulse -i virtual_mix.monitor "${hflip_flag[@]}" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -strict -2 "$output_file" &
+  if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
+    ffmpeg_webcam_only_flags+=(-input_format mjpeg)
+  fi
+  
+  #set to true to encode as mjpeg (no conversion), otherwise encode as h264
+  if false;then
+    ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_only_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+    -map 0:v -map 1:a -c:v copy -c:a aac -strict -2 "$output_file" \
+    -f mpegts /tmp/mjpeg_pipe &>/dev/null &
+  else
+    ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_only_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+    -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf 10 -c:a aac -strict -2 "$output_file" \
+    -map 0:v -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+  fi
   recorder_pid=$!
+  
+  #still show webcam
+  mpv /tmp/mjpeg_pipe --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
+  cleanup_commands+=$'\n'"kill $! 2>/dev/null
+rm -f /tmp/mjpeg_pipe"
   
 elif [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
   recording_mode="audio only"
@@ -373,7 +394,7 @@ else
 fi
 status "BSR recording mode: $recording_mode"
 
-cleanup_commands+=$'\n'"kill $recorder_pid 2>/dev/null"
+cleanup_commands+=$'\n'"kill -INT $recorder_pid 2>/dev/null"
 trap "$cleanup_commands" EXIT
 
 mute_function() { #handle mute button click events - get current state from the label, then change the label to the other state while toggling mute
@@ -398,4 +419,3 @@ yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecor
   --image=media-record --image-on-top --form \
   "${mute_function[@]}" \
   --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons
-kill $recorder_pid
