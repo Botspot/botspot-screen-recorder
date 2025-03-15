@@ -183,7 +183,7 @@ fi
 #install wf-recorder >= 0.5.0
 if ! command -v wf-recorder >/dev/null || [ "$(echo -e "0.5.0\n$(wf-recorder -v | awk '{print $2}')" | sort -V | head -n1)" != 0.5.0 ];then
   status "Compiling wf-recorder..."
-  sudo apt install -y wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev || error "dependency installation failed"
+  sudo apt install -y libwayland-dev wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev || error "dependency installation failed"
   rm -rf wf-recorder
   git clone https://github.com/ammen99/wf-recorder || error "failed to download wf-recorder git repo"
   cd wf-recorder
