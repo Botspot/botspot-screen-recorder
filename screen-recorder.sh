@@ -306,6 +306,9 @@ fi
 
 #audio handling, if enabled
 if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+  #stop easyeffects because it breaks the pipeline for whatever reason and prevents audio capture
+  killall easyeffects
+  
   #make a custom pulseaudio sink that merges microphone and system audio
   device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
   device2=''
