@@ -49,7 +49,10 @@ None. The script installs them for you. For the sake of completeness, here they 
 slurp ffmpeg ninja-build git meson mpv yad g++ wlr-randr v4l-utils wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev
 ```
 ### Arch support:
-I don't use Arch, but in theory you just need to install `slurp ffmpeg mpv yad wlr-randr v4l-utils wf-recorder` from wherever you install packages from.
+[This user](https://forums.raspberrypi.com/viewtopic.php?p=2316250&sid=98556ae27fa88a9adb8a26c0adc58165#p2316250) says this command works on Arch:
+```
+sudo pacman -S --needed ffmpeg gcc git meson mpv ninja slurp v4l-utils wf-recorder wlr-randr yad
+```
 
 ### Usage
 1. Run the script.
