@@ -78,7 +78,7 @@ list_monitors() { #HDMI-*\tpretty name
 }
 
 list_resolutions() { #list handpicked subset of resolutions supported by given webcam: ###x###\tpretty name
-  v4l2-ctl --device=$1 --list-formats-ext | grep Size | sed 's/^.*Size: .* //g' | sort -u | sort -n | grep '640x480\|1280x720\|1920x1080' | awk -Fx '{print $1"x"$2"\t"$2"p"}'
+  v4l2-ctl --device=$1 --list-formats-ext | grep Size | sed 's/^.*Size: .* //g' | sort -u | sort -n | grep '640x480\|864x480\|1280x720\|1920x1080' | awk -Fx '{print $1"x"$2"\t"$2"p"}'
 }
 
 favor_option() { #given a list of options on stdin, favor $1 if found
@@ -112,7 +112,7 @@ unique_filename() { #given a file $1, add a number before the file extension to 
   #echo -e "basename: $basename\nfile_extension: $file_extension\nrawname: $rawname\ndirname: $dirname\nnumber: $number\nname_no_number: $name_no_number"
   
   #find the last file in the numeric sequence
-  local lastfile="$(find "$dirname" -type f -regex ".*/${name_no_number}[0-9][0-9]*\.${file_extension}" | sort -V | tail -1)"
+  local lastfile="$(find "$dirname" -maxdepth 1 -type f -regex ".*/${name_no_number}[0-9][0-9]*\.${file_extension}" | sort -V | tail -1)"
   #this could be empty, if $1 has no number, and that file exists, then we should assign the number 1
   [ -z "$lastfile" ] && lastfile="${dirname}/${name_no_number}0.${file_extension}"
   #echo "lastfile: $lastfile"
@@ -260,7 +260,7 @@ fps='$fps'
 output_file='$output_file'" | tee ~/.config/botspot-screen-recorder.conf
 
 #convert pretty names to machine names ("none" option is converted to empty value)
-microphone="$(list_microphones | grep "$microphone"'$' | awk -F'\t' '{print $1}')"
+microphone="$(list_microphones | grep -m1 "$microphone"'$' | awk -F'\t' '{print $1}')"
 [ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep "$webcam"'$' | awk -F'\t' '{print $1}')" | grep "$(echo "$webcam" | awk '{print $NF}')" | awk -F'\t' '{print $1}')"
 webcam="$(list_webcams | grep "$webcam"'$' | awk -F'\t' '{print $1}')"
 monitor="$(list_monitors | grep "$monitor"'$' | awk -F'\t' '{print $1}')"
@@ -307,7 +307,7 @@ fi
 #audio handling, if enabled
 if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
   #stop easyeffects because it breaks the pipeline for whatever reason and prevents audio capture
-  killall easyeffects
+  killall easyeffects 2>/dev/null
   
   #make a custom pulseaudio sink that merges microphone and system audio
   device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
@@ -315,7 +315,7 @@ if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
   device3=''
   if [ ! -z "$microphone" ];then
     #if capturing microphone, set its input volume to 100%
-    pactl set-source-volume "$microphone" 100% || error "failed to set microphone volume"
+    pactl set-source-volume "$microphone" 100% || error "Failed to set microphone volume for '$microphone' to 100%"
     
     #make it an input to this pulseaudio loopback device
     if [ ! -z "$monitor" ];then
