@@ -225,7 +225,7 @@ output="$(yad "${yadflags[@]}" --form --align=center \
   --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
   --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field='Downscale screen 2X':CHK "$downscale_enabled" \
-  --field="Frame rate::CB" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+  --field="Frame rate::CBE" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
   --field="Crop boundaries::RO" "$geometry" \
   --field="Set crop boundaries:FBTN" '@bash -c slurp_function' \
   --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
