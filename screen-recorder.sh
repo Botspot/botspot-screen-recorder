@@ -138,22 +138,6 @@ unique_filename() { #given a file $1, add a number before the file extension to 
   echo "${dirname}/${name_no_number}$((number+1)).${file_extension}"
 }
 
-#get options used last time
-if [ -f ~/.config/botspot-screen-recorder.conf ];then
-  source ~/.config/botspot-screen-recorder.conf
-  
-  #replace $HOME with ~/ in output_file
-  output_file="$(unique_filename "$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")")"
-else
-  #set default values for what needs it
-  downscale_enabled=FALSE
-  mirror_enabled=TRUE
-  sysaudio_enabled=TRUE
-  output_file="~/Videos/recording.mkv"
-  geometry=''
-fi
-output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
-
 apt_install=()
 if ! command -v slurp >/dev/null ;then
   apt_install+=(slurp)
@@ -231,47 +215,73 @@ slurp_function() { #populate the crop field with the output from slurp
 }
 export -f slurp_function
 
-#main configuration window
-output="$(yad "${yadflags[@]}" --form --align=center \
-  --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
-  --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
-  --field='Downscale screen 2X':CHK "$downscale_enabled" \
-  --field="Frame rate::CBE" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option_gently "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
-  --field="Quality::CB" "$(echo -e 'Medium\nLow\nHigh' | favor_option "$quality" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
-  --field="Crop boundaries::RO" "$geometry" \
-  --field="Set crop boundaries!edit-select-all-symbolic:FBTN" '@bash -c "slurp_function 5"' \
-  --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
-  --field="Mirror webcam:CHK" "$mirror_enabled" \
-  --field='Microphone::CB' "$(list_microphones | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$microphone" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
-  --field='Record system audio:CHK' "$sysaudio_enabled" \
-  --field="Output file::SFL" "$output_file" \
-  --button="Start recording"!media-record-symbolic:0)"
-button=$?
-if [ $button != 0 ] && [ $button != 2 ];then
-  exit 0
-fi
-output="$(echo "$output" | grep -vF 'Opening in existing browser session.')" #workaround chromium output from donate button shifting everything down a line
+while true;do #repeat the gui until user exits
+  #get options used last time
+  if [ -f ~/.config/botspot-screen-recorder.conf ];then
+    source ~/.config/botspot-screen-recorder.conf
+    
+    #replace $HOME with ~/ in output_file
+    output_file="$(unique_filename "$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")")"
+  else
+    #set default values for what needs it
+    downscale_enabled=FALSE
+    mirror_enabled=TRUE
+    sysaudio_enabled=TRUE
+    output_file="~/Videos/recording.mkv"
+    geometry=''
+  fi
+  output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
+  
+  #main configuration window
+  output="$(yad "${yadflags[@]}" --form --align=center \
+    --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
+    --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field='Downscale screen 2X':CHK "$downscale_enabled" \
+    --field="Frame rate::CBE" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option_gently "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field="Quality::CB" "$(echo -e 'Medium\nLow\nHigh' | favor_option "$quality" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field="Crop boundaries::RO" "$geometry" \
+    --field="Set crop boundaries!edit-select-all-symbolic:FBTN" '@bash -c "slurp_function 5"' \
+    --field='Webcam::CB' "$(list_webcams | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$webcam" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field="Mirror webcam:CHK" "$mirror_enabled" \
+    --field='Microphone::CB' "$(list_microphones | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$microphone" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field='Record system audio:CHK' "$sysaudio_enabled" \
+    --field="Output file::SFL" "$output_file" \
+    --button="Preview"!view-reveal-symbolic:2 \
+    --button="Start recording"!media-record-symbolic:0)"
+  case $? in #get button clicked
+    0)
+      mode=normal
+      ;;
+    2)
+      mode=preview
+      ;;
+    *)
+      exit 0 #yad window closed
+      ;;
+  esac
 
-monitor="$(echo "$output" | sed -n 1p)"
-downscale_enabled="$(echo "$output" | sed -n 2p)"
-fps="$(echo "$output" | sed -n 3p)"
-quality="$(echo "$output" | sed -n 4p)"
-geometry="$(echo "$output" | sed -n 5p)"
-webcam="$(echo "$output" | sed -n 7p)"
-mirror_enabled="$(echo "$output" | sed -n 8p)"
-microphone="$(echo "$output" | sed -n 9p)"
-sysaudio_enabled="$(echo "$output" | sed -n 10p)"
-output_file="$(echo "$output" | sed -n 11p)"
-if [ -z "$output_file" ];then
-  #default filename if unset
-  output_file="$(unique_filename "$HOME/Videos/recording.mkv")"
-elif [[ "$output_file" != *'.'* ]];then
-  #enforce file extension
-  output_file+='.mkv'
-fi
+  output="$(echo "$output" | grep -vF 'Opening in existing browser session.')" #workaround chromium output from donate button shifting everything down a line
 
-#save gui selected values to conf file before making them machine readible
-echo "monitor='$monitor'
+  monitor="$(echo "$output" | sed -n 1p)"
+  downscale_enabled="$(echo "$output" | sed -n 2p)"
+  fps="$(echo "$output" | sed -n 3p)"
+  quality="$(echo "$output" | sed -n 4p)"
+  geometry="$(echo "$output" | sed -n 5p)"
+  webcam="$(echo "$output" | sed -n 7p)"
+  mirror_enabled="$(echo "$output" | sed -n 8p)"
+  microphone="$(echo "$output" | sed -n 9p)"
+  sysaudio_enabled="$(echo "$output" | sed -n 10p)"
+  output_file="$(echo "$output" | sed -n 11p)"
+  if [ -z "$output_file" ];then
+    #default filename if unset
+    output_file="$(unique_filename "$HOME/Videos/recording.mkv")"
+  elif [[ "$output_file" != *'.'* ]];then
+    #enforce file extension
+    output_file+='.mkv'
+  fi
+
+  #save gui selected values to conf file before making them machine readible
+  echo "monitor='$monitor'
 downscale_enabled='$downscale_enabled'
 geometry='$geometry'
 quality='$quality'
@@ -282,202 +292,252 @@ sysaudio_enabled='$sysaudio_enabled'
 fps='$fps'
 output_file='$output_file'" | tee ~/.config/botspot-screen-recorder.conf
 
-#convert pretty names to machine names ("none" option is converted to empty value)
-microphone="$(list_microphones | grep -m1 "$microphone"'$' | awk -F'\t' '{print $1}')"
-[ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep "$webcam"'$' | awk -F'\t' '{print $1}')" | grep "$(echo "$webcam" | awk '{print $NF}')" | awk -F'\t' '{print $1}')"
-webcam="$(list_webcams | grep -m1 "$webcam"'$' | awk -F'\t' '{print $1}')"
-monitor="$(list_monitors | grep "$monitor"'$' | awk -F'\t' '{print $1}')"
-output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
+  #convert pretty names to machine names ("none" option is converted to empty value)
+  microphone="$(list_microphones | grep -m1 "$microphone"'$' | awk -F'\t' '{print $1}')"
+  [ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep "$webcam"'$' | awk -F'\t' '{print $1}')" | grep "$(echo "$webcam" | awk '{print $NF}')" | awk -F'\t' '{print $1}')"
+  webcam="$(list_webcams | grep -m1 "$webcam"'$' | awk -F'\t' '{print $1}')"
+  monitor="$(list_monitors | grep "$monitor"'$' | awk -F'\t' '{print $1}')"
+  output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
 
-#variables to hold flags passed to mpv and wf-recorder
-mpv_flags=()
-recorder_flags=()
-hflip_flag=()
-ffmpeg_webcam_input_flags=()
+  #variables to hold flags passed to mpv and wf-recorder
+  mpv_flags=()
+  recorder_flags=()
+  hflip_flag=()
+  ffmpeg_webcam_input_flags=()
 
-#parse inputs - webcam mirror
-if [ "$mirror_enabled" == TRUE ];then
-  hflip_flag=(-vf hflip)
-fi
+  #parse inputs - webcam mirror
+  if [ "$mirror_enabled" == TRUE ];then
+    hflip_flag=(-vf hflip)
+  fi
 
-#parse inputs - fps
-if [ "$fps" != maximum ];then
-  recorder_flags+=(-B "$fps" -r "$fps")
-  ffmpeg_webcam_input_flags+=(-framerate $fps)
-  mpv_flags+=(--vf=fps=$fps) #also limit webcam feed fps
-fi
+  #parse inputs - fps
+  if [ "$fps" != maximum ];then
+    recorder_flags+=(-B "$fps" -r "$fps")
+    ffmpeg_webcam_input_flags+=(-framerate $fps)
+    mpv_flags+=(--vf=fps=$fps) #also limit webcam feed fps
+  fi
 
-#parse inputs - quality
-if [ ! -z "$quality" ];then
-  case "$quality" in
-    High)
-      crf=12
-      ;;
-    Medium)
-      crf=21
-      ;;
-    Low)
-      crf=28
-      ;;
-  esac
-  recorder_flags+=(-p crf=$crf)
-fi
+  #parse inputs - quality
+  if [ ! -z "$quality" ];then
+    case "$quality" in
+      High)
+        crf=12
+        ;;
+      Medium)
+        crf=21
+        ;;
+      Low)
+        crf=28
+        ;;
+    esac
+    recorder_flags+=(-p crf=$crf)
+  fi
 
-#parse inputs - monitor
-if [ ! -z "$monitor" ];then
-  recorder_flags+=(-o "$monitor")
-fi
+  #parse inputs - screen
+  if [ ! -z "$monitor" ];then
+    recorder_flags+=(-o "$monitor")
+  fi
 
-#parse inputs - webcam resolution
-if [ ! -z "$webcam_resolution" ] && [ ! -z "$webcam" ];then
-  v4l2-ctl --device="$webcam" --set-fmt-video=width=$(echo "$webcam_resolution" | awk -Fx '{print $1}'),height=$(echo "$webcam_resolution" | awk -Fx '{print $2}')
-fi
+  #parse inputs - webcam resolution
+  if [ ! -z "$webcam_resolution" ] && [ ! -z "$webcam" ];then
+    v4l2-ctl --device="$webcam" --set-fmt-video=width=$(echo "$webcam_resolution" | awk -Fx '{print $1}'),height=$(echo "$webcam_resolution" | awk -Fx '{print $2}')
+  fi
 
-#parse inputs - downscaling
-if [ "$downscale_enabled" == TRUE ];then
-  recorder_flags+=(-F 'scale=iw*0.5:ih*0.5')
-fi
-
-#parse inputs - geometry (crop boundaries)
-if [ ! -z "$geometry" ];then
-  recorder_flags+=(-g "$geometry")
-  
-  #handle edge case: if downscale 2x is enabled and geometry is specified, ensure that geometry is divisible by 2
+  #parse inputs - downscaling
   if [ "$downscale_enabled" == TRUE ];then
-    #extract width and height
-    [[ $geometry =~ ^([0-9]+,[0-9]+)[[:space:]]+([0-9]+)+x([0-9]+)$ ]]
-    offset="${BASH_REMATCH[1]}"
-    w="${BASH_REMATCH[2]}"
-    h="${BASH_REMATCH[3]}"
-    # Make even: if odd, add 1 (round up)
-    (( w % 2 == 1 )) && ((w++))
-    (( h % 2 == 1 )) && ((h++))
+    recorder_flags+=(-F 'scale=iw*0.5:ih*0.5')
   fi
-fi
 
-#audio handling, if enabled
-if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
-  #stop easyeffects because it breaks the pipeline for whatever reason and prevents audio capture
-  killall easyeffects 2>/dev/null
-  
-  #make a custom pulseaudio sink that merges microphone and system audio
-  device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
-  device2=''
-  device3=''
-  if [ ! -z "$microphone" ];then
-    #if capturing microphone, set its input volume to 100%
-    pactl set-source-volume "$microphone" 100% || error "Failed to set microphone volume for '$microphone' to 100%"
-    
-    #make it an input to this pulseaudio loopback device
-    if [ ! -z "$monitor" ];then
-      #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
-      device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
-    else
-      #not screen recording, so don't add latency
-      device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix)"
+  #parse inputs - geometry (crop boundaries)
+  if [ ! -z "$geometry" ];then
+    #handle edge case: if downscale 2x is enabled and geometry is specified, ensure that geometry is divisible by 2
+    if [ "$downscale_enabled" == TRUE ];then
+      #extract width and height
+      [[ $geometry =~ ^([0-9]+,[0-9]+)[[:space:]]+([0-9]+)+x([0-9]+)$ ]]
+      offset="${BASH_REMATCH[1]}"
+      w="${BASH_REMATCH[2]}"
+      h="${BASH_REMATCH[3]}"
+      # Round width and height to nearest multiple of 4
+      (( w = (w + 2) / 4 * 4 ))
+      (( h = (h + 2) / 4 * 4 ))
+      geometry="${offset} ${w}x${h}"
     fi
-  fi
-  
-  if [ "$sysaudio_enabled" == TRUE ];then
-    #if capturing system audio, make it an input to this pulseaudio monitor device
-    device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=virtual_mix)"
-    #This captures system audio always at 100% regardless of system volume. Bug or feature? You decide.
-  fi
-  
-  #make sure to remove these virtual audio devices on script exit
-  cleanup_commands="pactl unload-module $device1 2>/dev/null
-  pactl unload-module $device2 2>/dev/null
-  pactl unload-module $device3 2>/dev/null"
-  trap "$cleanup_commands" EXIT
-fi
-
-#ensure containing directory for output file
-mkdir -p "$(dirname "$output_file")"
-
-if [ ! -z "$monitor" ];then
-  #screen recording mode
-  
-  #display webcam if enabled
-  if [ ! -z "$webcam" ];then
-    recording_mode="screen + on-screen webcam feed"
     
-    mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
-    cleanup_commands+=$'\n'"kill $! 2>/dev/null"
+    recorder_flags+=(-g "$geometry")
+  fi
+  echo $geometry
+
+  #handle preview mode
+  if [ $mode == preview ];then
+    #disable any audio capture for the preview (these new values not saved to config file)
+    sysaudio_enabled=FALSE
+    microphone=''
+    
+    #write video to a pipe which we will preview
+    rm -f /tmp/preview_pipe
+    mkfifo /tmp/preview_pipe || exit 1
+    output_file=/tmp/preview_pipe
+  fi
+
+  #audio handling, if enabled
+  if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+    #stop easyeffects because it breaks the pipeline for whatever reason and prevents audio capture
+    killall easyeffects 2>/dev/null
+    
+    #make a custom pulseaudio sink that merges microphone and system audio
+    device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
+    device2=''
+    device3=''
+    if [ ! -z "$microphone" ];then
+      #if capturing microphone, set its input volume to 100%
+      pactl set-source-volume "$microphone" 100% || error "Failed to set microphone volume for '$microphone' to 100%"
+      
+      #make it an input to this pulseaudio loopback device
+      if [ ! -z "$monitor" ];then
+        #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
+        device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
+      else
+        #not screen recording, so don't add latency
+        device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix)"
+      fi
+    fi
+    
+    if [ "$sysaudio_enabled" == TRUE ];then
+      #if capturing system audio, make it an input to this pulseaudio monitor device
+      device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=virtual_mix)"
+      #This captures system audio always at 100% regardless of system volume. Bug or feature? You decide.
+    fi
+    
+    #make sure to remove these virtual audio devices on script exit
+    cleanup_commands="pactl unload-module $device1 2>/dev/null
+    pactl unload-module $device2 2>/dev/null
+    pactl unload-module $device3 2>/dev/null"
+    trap "$cleanup_commands" EXIT
+  fi
+
+  #ensure containing directory for output file
+  mkdir -p "$(dirname "$output_file")"
+
+  if [ ! -z "$monitor" ];then
+    #screen recording mode
+    
+    #display webcam if enabled
+    if [ ! -z "$webcam" ];then
+      recording_mode="screen + on-screen webcam feed"
+      
+      mpv av://v4l2:"$webcam" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --script="${DIRECTORY}/webcam-view.lua" &
+      cleanup_commands+=$'\n'"kill $! 2>/dev/null"
+    else
+      recording_mode="screen only"
+    fi
+    
+    #record screen
+    wf-recorder --audio=virtual_mix.monitor -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
+    recorder_pid=$!
+    
+  elif [ ! -z "$webcam" ];then
+    recording_mode="webcam only"
+    #video only recording mode
+    rm -f /tmp/mjpeg_pipe
+    mkfifo /tmp/mjpeg_pipe || exit 1
+    
+    #use mjpeg if the webcam supports it, for the preview to work well
+    if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
+      ffmpeg_webcam_input_flags+=(-input_format mjpeg)
+    fi
+    
+    #set to true to encode as mjpeg (no conversion), otherwise encode as h264
+    if false;then
+      ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+      -map 0:v -map 1:a -c:v copy -c:a aac -strict -2 "$output_file" \
+      -f mpegts /tmp/mjpeg_pipe &>/dev/null &
+    else
+      if [ $mode == normal ];then
+        #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
+        ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+        -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf $crf -c:a aac -strict -2 -f matroska "$output_file" \
+        -map 0:v -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
+      elif [ $mode == preview ];then
+        #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
+        ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+        -map 0:v -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+      fi
+    fi
+    recorder_pid=$!
+    
+    #still show webcam
+    mpv /tmp/mjpeg_pipe "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
+    cleanup_commands+=$'\n'"kill $! 2>/dev/null
+    rm -f /tmp/mjpeg_pipe"
+    
+  elif [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+    recording_mode="audio only"
+    #audio only recording mode
+    ffmpeg -hide_banner -y -f pulse -i virtual_mix.monitor -c:a aac -strict -2 "$output_file" &
+    recorder_pid=$!
   else
-    recording_mode="screen only"
+    error "Refusing to record nothing :)"
+  fi
+  status "BSR recording mode: $recording_mode"
+
+  cleanup_commands+=$'\n'"kill -INT $recorder_pid 2>/dev/null"
+  trap "$cleanup_commands" EXIT
+
+  mute_function() { #handle mute button click events - get current state from the label, then change the label to the other state while toggling mute
+    if [ "$1" == unmuted ];then
+      pactl set-sink-mute "virtual_mix" 1
+      echo -n 2:muted
+    else
+      pactl set-sink-mute "virtual_mix" 0
+      echo -n 2:unmuted
+    fi
+  }
+  export -f mute_function
+
+  mute_function=()
+  if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+    #audio enabled, add mute button
+    mute_function=(--field='Toggle mute!audio-input-mic-muted':FBTN '@bash -c "mute_function %2"' \
+    --field=:RO 'unmuted')
+  fi
+
+  #handle normal recording mode
+  if [ $mode == normal ];then
+    yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecording $recording_mode" \
+      --image=media-record --image-on-top --form \
+      "${mute_function[@]}" \
+      --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons &
+    yadpid=$!
+    #run yad as a background process, so that if recorder_pid stops, we can close yad
+    wait -n $recorder_pid $yadpid #wait until either yad is closed or recorder stops
+    
+    #if killing yad succeeds, that means recorder was the pid that stopped, so warn the user
+    kill $yadpid &>/dev/null && yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRecording stopped :(\nRun BSR in a terminal to see what the error was." \
+      --image=media-record --image-on-top --form \
+      --button=Close:0
+  
+  #handle preview mode
+  elif [ $mode == preview ];then
+    yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nPreviewing $recording_mode" \
+      --image=view-reveal-symbolic --image-on-top --form \
+      --field=$'\n<big>                      Stop previewing                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons &
+    yadpid=$!
+    
+    #only display a preview if it's of the screen - nobody wants 2 identical previews in webcam-only mode
+    if [ ! -z "$monitor" ];then
+      mpv /tmp/preview_pipe --title="BSR preview feed" --no-audio --cache=no --no-osc --profile=low-latency --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
+      mpvpid=$!
+    else
+      #read the pipe to be non-blocking to ffmpeg process (should be unnecessary because preview skips writing to output in preview mode, but better safe than sorry)
+      cat /tmp/preview_pipe >/dev/null &
+      mpvpid=$!
+    fi
+    #stop the preview when yad or the recorder stops
+    wait -n $recorder_pid $yadpid
+    kill $mpvpid $yadpid 2>/dev/null
   fi
   
-  #record screen
-  wf-recorder --audio=virtual_mix.monitor -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
-  recorder_pid=$!
+  #between loop repeats, ensure A/V processes and pulse sinks are cleaned up
+  eval "$cleanup_commands"
   
-elif [ ! -z "$webcam" ];then
-  recording_mode="webcam only"
-  #video only recording mode
-  rm -f /tmp/mjpeg_pipe
-  mkfifo /tmp/mjpeg_pipe || exit 1
-  
-  if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
-    ffmpeg_webcam_input_flags+=(-input_format mjpeg)
-  fi
-  
-  #set to true to encode as mjpeg (no conversion), otherwise encode as h264
-  if false;then
-    ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
-    -map 0:v -map 1:a -c:v copy -c:a aac -strict -2 "$output_file" \
-    -f mpegts /tmp/mjpeg_pipe &>/dev/null &
-  else
-    ffmpeg -hide_banner -y -f v4l2 "${input_format[@]}" "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
-    -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf $crf -c:a aac -strict -2 "$output_file" \
-    -map 0:v -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
-  fi
-  recorder_pid=$!
-  
-  #still show webcam
-  mpv /tmp/mjpeg_pipe "${mpv_flags[@]}" "${hflip_flag[@]}" --no-audio --cache=no --framedrop=decoder+vo --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
-  cleanup_commands+=$'\n'"kill $! 2>/dev/null
-rm -f /tmp/mjpeg_pipe"
-  
-elif [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
-  recording_mode="audio only"
-  #audio only recording mode
-  ffmpeg -hide_banner -y -f pulse -i virtual_mix.monitor -c:a aac -strict -2 "$output_file" &
-  recorder_pid=$!
-else
-  error "Refusing to record nothing :)"
-fi
-status "BSR recording mode: $recording_mode"
-
-cleanup_commands+=$'\n'"kill -INT $recorder_pid 2>/dev/null"
-trap "$cleanup_commands" EXIT
-
-mute_function() { #handle mute button click events - get current state from the label, then change the label to the other state while toggling mute
-  if [ "$1" == unmuted ];then
-    pactl set-sink-mute "virtual_mix" 1
-    echo -n 2:muted
-  else
-    pactl set-sink-mute "virtual_mix" 0
-    echo -n 2:unmuted
-  fi
-}
-export -f mute_function
-
-mute_function=()
-if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
-  #audio enabled, add mute button
-  mute_function=(--field='Toggle mute!audio-input-mic-muted':FBTN '@bash -c "mute_function %2"' \
-  --field=:RO 'unmuted')
-fi
-
-yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecording $recording_mode" \
-  --image=media-record --image-on-top --form \
-  "${mute_function[@]}" \
-  --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons &
-yadpid=$!
-#run yad as a background process, so that if recorder_pid stops, we can close yad
-wait -n $recorder_pid $yadpid #wait until either yad is closed or recorder stops
-
-#if killing yad succeeds, that means recorder was the pid that stopped, so warn the user
-kill $yadpid &>/dev/null && yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRecording stopped :(\nRun BSR in a terminal to see what the error was." \
-  --image=media-record --image-on-top --form \
-  --button=Close:0
+done
