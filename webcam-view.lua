@@ -89,5 +89,15 @@ end)
 -- Bind left mouse button clicks
 mp.add_key_binding("MBTN_LEFT", "click", handle_click)
 
+-- Bind F11 key to toggle fullscreen
+mp.add_key_binding("F11", "toggle-fullscreen", function()
+    mp.command("cycle fullscreen")
+end)
+
+-- Bind F key to toggle fullscreen
+mp.add_key_binding("F", "toggle-fullscreen", function()
+    mp.command("cycle fullscreen")
+end)
+
 -- Disable MPV's default OSC
 mp.commandv("script-message", "osc-visibility", "never")
