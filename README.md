@@ -46,7 +46,7 @@ On first run, BSR adds a convenient launcher to the start menu. To remove it fro
 ### Debian packages to install:
 None. The script installs them for you. For the sake of completeness, here they are: (most of these are just used to compile wf-recorder)
 ```
-slurp ffmpeg ninja-build git meson mpv yad g++ wlr-randr v4l-utils wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev
+slurp grim ffmpeg ninja-build git meson mpv yad g++ wlr-randr v4l-utils wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev
 ```
 ### Arch support:
 [This user](https://forums.raspberrypi.com/viewtopic.php?p=2316250&sid=98556ae27fa88a9adb8a26c0adc58165#p2316250) says this command works on Arch:

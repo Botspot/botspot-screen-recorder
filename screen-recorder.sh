@@ -142,6 +142,9 @@ apt_install=()
 if ! command -v slurp >/dev/null ;then
   apt_install+=(slurp)
 fi
+if ! command -v grim >/dev/null ;then
+  apt_install+=(grim)
+fi
 if ! command -v ffmpeg >/dev/null ;then
   apt_install+=(ffmpeg)
 fi
@@ -215,6 +218,45 @@ slurp_function() { #populate the crop field with the output from slurp
 }
 export -f slurp_function
 
+take_screenshot() { #use crop boundaries if set, otherwise capture selected screen
+  local screenshot_dir="$HOME/Pictures"
+  local screenshot_file
+  local monitor_fallback
+  local monitor_target
+  local timestamp
+  local grim_flags=()
+
+  if command -v xdg-user-dir >/dev/null ;then
+    screenshot_dir="$(xdg-user-dir PICTURES)"
+    [ -z "$screenshot_dir" ] && screenshot_dir="$HOME/Pictures"
+  fi
+
+  timestamp="$(date +%Y%m%d_%H%M%S)"
+  screenshot_file="${screenshot_dir}/screenshot_${timestamp}.png"
+
+  if [ ! -z "$geometry" ];then
+    grim_flags+=(-g "$geometry")
+  else
+    monitor_target="$(printf '%s\n' "$monitor" | head -n1)"
+    if [ ! -z "$monitor_target" ];then
+      grim_flags+=(-o "$monitor_target")
+    else
+      monitor_fallback="$(list_monitors | awk -F'\t' 'NF{print $1; exit}')"
+      if [ ! -z "$monitor_fallback" ];then
+        grim_flags+=(-o "$monitor_fallback")
+      else
+        error "No outputs detected for screenshot"
+      fi
+    fi
+  fi
+
+  mkdir -p "$screenshot_dir" || error "failed to create $screenshot_dir"
+  if ! grim "${grim_flags[@]}" "$screenshot_file" ;then
+    error "failed to take screenshot"
+  fi
+  status "Saved screenshot to $screenshot_file"
+}
+
 while true;do #repeat the gui until user exits
   #get options used last time
   if [ -f ~/.config/botspot-screen-recorder.conf ];then
@@ -247,6 +289,7 @@ while true;do #repeat the gui until user exits
     --field='Record system audio:CHK' "$sysaudio_enabled" \
     --field="Output file::SFL" "$output_file" \
     --button="Preview"!view-reveal-symbolic:2 \
+    --button="Screenshot"!camera-photo-symbolic:3 \
     --button="Start recording"!media-record-symbolic:0)"
   case $? in #get button clicked
     0)
@@ -254,6 +297,9 @@ while true;do #repeat the gui until user exits
       ;;
     2)
       mode=preview
+      ;;
+    3)
+      mode=screenshot
       ;;
     *)
       exit 0 #yad window closed
@@ -298,6 +344,11 @@ output_file='$output_file'" | tee ~/.config/botspot-screen-recorder.conf
   webcam="$(list_webcams | grep -m1 "$webcam"'$' | awk -F'\t' '{print $1}')"
   monitor="$(list_monitors | grep "$monitor"'$' | awk -F'\t' '{print $1}')"
   output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
+
+  if [ "$mode" == screenshot ];then
+    take_screenshot
+    continue
+  fi
 
   #variables to hold flags passed to mpv and wf-recorder
   mpv_flags=()
