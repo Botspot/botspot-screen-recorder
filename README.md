@@ -28,7 +28,7 @@ BSR has flexible operation modes.
   - Reduce video file size by 60% without quality reduction, by re-encoding the video file with libx264's `slower` compression preset.
 
 ### Screenshots:
-![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/13bd37ee-caf4-41cd-b6da-44ac329c73e6)  
+![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/a1d0e32c-24ba-472f-9890-72d1745cf9d9)  
 ![20250214_21h52m07s_grim](https://github.com/user-attachments/assets/98e93cd5-e1d2-4b29-a862-587b6f10ac77)
 
 
