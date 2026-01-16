@@ -1,7 +1,6 @@
 # Botspot's Screen Recorder (BSR)
-All-in-one simple screen recording tool for wlroots-based Wayland compositors like LabWC, Wayfire, and Sway.  
 [![badge](https://github.com/Botspot/pi-apps/blob/master/icons/badge.png?raw=true)](https://github.com/Botspot/pi-apps)  
-Botspot Screen Recorder (BSR) makes it easy to record the screen on Wayland Pi OS.
+All-in-one simple screen recording tool for wlroots-based Wayland compositors like LabWC, Wayfire, and Sway.  
 
 - Record audio
 - Record the screen
