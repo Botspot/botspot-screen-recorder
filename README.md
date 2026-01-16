@@ -71,11 +71,7 @@ sudo pacman -S --needed ffmpeg gcc git meson mpv ninja slurp v4l-utils wf-record
   - If you are using Wayfire, I am not aware of an easy way to do this. :(
 
 ### Update to latest version
-```
-cd botspot-screen-recorder
-git pull
-```
-Once this is not in beta, this will be added to [Pi-Apps](https://github.com/Botspot/pi-apps) and updates will be handled automatically then.
+Simply run BSR. It auto-updates using `git pull`.
 
 ### Command-line flags
 There are no command line flags. Go directly use wf-recorder for that. If you think I should add a new option, let me know.
