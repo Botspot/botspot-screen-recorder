@@ -217,7 +217,7 @@ if [ "$localhash" != "$latesthash" ] && [ ! -z "$latesthash" ] && [ ! -z "$local
   (cd "$DIRECTORY"
   git restore . #abandon changes to tracked files (otherwise users who modified this script are left behind)
   git -c color.ui=always pull | cat #piping through cat makes git noninteractive
-  return "${PIPESTATUS[0]}")
+  exit "${PIPESTATUS[0]}")
   
   if [ $? == 0 ];then
     echo "git pull finished. Reloading script..."
