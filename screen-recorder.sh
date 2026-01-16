@@ -209,6 +209,25 @@ fi
 #exit now if given 'install' flag - for use in pi-apps
 [ "$1" == install ] && exit 0
 
+#check for updates
+localhash="$(cd "$DIRECTORY" ; git rev-parse HEAD)"
+latesthash="$(git ls-remote https://github.com/Botspot/botspot-screen-recorder HEAD | awk '{print $1}')"
+if [ "$localhash" != "$latesthash" ] && [ ! -z "$latesthash" ] && [ ! -z "$localhash" ];then
+  echo "Auto-updating BSR for the latest features and improvements..."
+  (cd "$DIRECTORY"
+  git restore . #abandon changes to tracked files (otherwise users who modified this script are left behind)
+  git -c color.ui=always pull | cat #piping through cat makes git noninteractive
+  return "${PIPESTATUS[0]}")
+  
+  if [ $? == 0 ];then
+    echo "git pull finished. Reloading script..."
+    "$DIRECTORY/screen-recorder.sh" "$@"
+    exit $?
+  else
+    echo "git pull failed. Continuing..."
+  fi
+fi
+
 slurp_function() { #populate the crop field with the output from slurp
   echo -n $1: #if new options are added to YAD, be sure to edit the arg where this function runs!
   slurp
