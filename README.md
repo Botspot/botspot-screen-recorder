@@ -8,24 +8,24 @@ BSR is:
 - Super lightweight
 - Just one shell script
 - Aligned with KISS principles
-- Optimized for hardware like Raspberry Pi that lacks GPU-accelerated video encoding
+- Optimized for hardware like Raspberry Pi that lacks hardware accelerated video encoding
 
 BSR has flexible operation modes.
-- Video source options:
-  - Record the screen and webcam. The webcam feed is displayed in a window that is captured in the screen recording.
-  - Record only the screen.
-  - Record only the webcam directly using ffmpeg.
-  - Record no video. (only audio)
-- Audio source options:
-  - Capture both system output audio and microphone input.
-  - Capture only system audio.
-  - Capture only microphone input.
-  - Capture no audio. (only video)
+
+|  | Screen + Webcam |  Screen only | Webcam only | None |
+| -- | -- | -- | -- | -- |
+| **System Audio** | `✅` Supported | `✅` Supported | `✅` Supported | `✅` Supported |
+| **Microphone** | `✅` Supported | `✅` Supported | `✅` Supported | `✅` Supported |
+| **Both** | `✅` Supported | `✅` Supported | `✅` Supported | `✅` Supported |
+| **None** | `✅` Supported | `✅` Supported | `✅` Supported |  |
+
 - Video processing options:
   - Record a fixed rectanglular section of the screen. (crop feature)
   - Mirror the webcam feed.
-  - Limit the screen recording frame rate.
-  - Downscale the recorded screen by a factor of 2. For example, a 1920x1080 screen can be encoded as a 960x540 video file to reduce filesize and CPU usage.
+  - Custom screen recording frame rate.
+  - Custom video quality (high/medium/low)
+  - Downscale the output video by a factor of 2. For example, a 1920x1080 screen or webcam can be encoded as 960x540 video file to reduce filesize and CPU usage.
+  - Reduce video file size by 60% without quality reduction, by re-encoding the video file with libx264's `slower` compression preset.
 
 ### Screenshots:
 ![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/13bd37ee-caf4-41cd-b6da-44ac329c73e6)  
@@ -49,7 +49,8 @@ None. The script installs them for you. For the sake of completeness, here they 
 slurp ffmpeg ninja-build git meson mpv yad g++ wlr-randr v4l-utils wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev
 ```
 ### Arch support:
-[This user](https://forums.raspberrypi.com/viewtopic.php?p=2316250&sid=98556ae27fa88a9adb8a26c0adc58165#p2316250) says this command works on Arch:
+[This user](https://forums.raspberrypi.com/viewtopic.php?p=2316250&sid=98556ae27fa88a9adb8a26c0adc58165#p2316250) says this command works on Arch:  
+If BSR detects all necessary packages are installed, it should not try to use apt to install anything. Let me know otherwise.
 ```
 sudo pacman -S --needed ffmpeg gcc git meson mpv ninja slurp v4l-utils wf-recorder wlr-randr yad
 ```
@@ -66,8 +67,8 @@ sudo pacman -S --needed ffmpeg gcc git meson mpv ninja slurp v4l-utils wf-record
 - It can be resized and moved in real time. Click and drag anywhere on the window to move it.
 - Double-click the webcam feed to toggle fullscreen. Press Escape to exit fullscreen.
 - To keep the webcam feed visible above other windows, use your Wayland compositor to do it.
-  - If you are using the LabWC compositor, press Alt+Space then click Always on Top.
-  - If you are using Wayfire I am not aware of an easy way to do this.
+  - If you are using the LabWC compositor, press Alt+Space, then click Always on Top.
+  - If you are using Wayfire, I am not aware of an easy way to do this. :(
 
 ### Update to latest version
 ```
