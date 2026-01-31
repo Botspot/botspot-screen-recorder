@@ -18,13 +18,13 @@ status() { #cyan text to indicate what is happening
 list_microphones() { #technical name\tpretty name
   #find valid audio inputs
   local sources="$(pactl list sources)" #avoid running this several times
-  local names="$(echo "$sources" | grep 'Name: alsa_input' | awk '{print $2}')"
+  local names="$(echo "$sources" | grep -E 'Name: (alsa_input|bluez_input)' | awk '{print $2}')"
   local name
   local found=
   for name in $names ;do
     found=yes
     echo -n "$name"$'\t'
-    echo "$sources" | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -F "Name: $name" | grep -o 'alsa.card_name = [^'$'\t]*' | awk -F'"' '{print $2}'
+    echo "$sources" | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -F "Name: $name" | grep -o 'device.description = [^'$'\t]*\|alsa.card_name = [^'$'\t]*' | awk -F'"' '{print $2}'
   done
   
   if [ -z "$found" ];then
