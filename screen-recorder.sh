@@ -24,7 +24,7 @@ list_microphones() { #technical name\tpretty name
   for name in $names ;do
     found=yes
     echo -n "$name"$'\t'
-    echo "$sources" | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -F "Name: $name" | grep -o 'device.description = [^'$'\t]*\|alsa.card_name = [^'$'\t]*' | awk -F'"' '{print $2}'
+    echo "$sources" | tr '\n' '\r' | sed 's/\r\r/\n/g ; s/\r//g' | grep -F "Name: $name" | grep -o 'device.description = [^'$'\t]*\|alsa.card_name = [^'$'\t]*' | tail -1 | awk -F'"' '{print $2}'
   done
   
   if [ -z "$found" ];then
@@ -446,6 +446,14 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     pactl unload-module $device2 2>/dev/null
     pactl unload-module $device3 2>/dev/null"
     trap "$cleanup_commands" EXIT
+    
+    #only if audio is enabled should we tell wf-recorder to record this monitor
+    #this way if audio capture is disabled it does not fallback to the default monitor (see issue #5)
+    recorder_flags+=(--audio=virtual_mix.monitor)
+    #do the same for ffmpeg
+    ffmpegflags+=(-f pulse -i virtual_mix.monitor)
+  else
+    status "not making device1"
   fi
   
   #ensure containing directory for output file
@@ -465,7 +473,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     fi
     
     #record screen
-    wf-recorder --audio=virtual_mix.monitor -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
+    wf-recorder -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
     recorder_pid=$!
     
   elif [ ! -z "$webcam" ];then
@@ -481,18 +489,18 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     
     #set to true to encode as mjpeg (no conversion), otherwise encode as h264
     if false;then
-      ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+      ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
       -map 0:v -map 1:a -c:v copy -c:a aac "$output_file" \
       -f mpegts /tmp/mjpeg_pipe &>/dev/null &
     else
       if [ $mode == normal ];then
         #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
-        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
         -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf $crf -c:a aac -f matroska "$output_file" \
         -map 0:v -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
       elif [ $mode == preview ];then
         #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
-        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" -f pulse -i virtual_mix.monitor \
+        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
         -map 0:v -c:v copy -an -f matroska /tmp/mjpeg_pipe &
       fi
     fi
@@ -507,11 +515,11 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     recording_mode="audio only"
     #audio only recording mode
     if [ $mode == normal ];then
-      ffmpeg "${ffmpegflags[@]}" -y -f pulse -i virtual_mix.monitor -c:a aac "$output_file" &
+      ffmpeg "${ffmpegflags[@]}" -y -c:a aac "$output_file" &
       recorder_pid=$!
     elif [ $mode == preview ];then
       #preview audio stereo graph with minimum latency
-      ffmpeg "${ffmpegflags[@]}" -f pulse -i virtual_mix.monitor -fflags nobuffer -flags low_delay -flush_packets 1 -probesize 32 -analyzeduration 0 -f s16le -ac 2 -ar 48000 - | \
+      ffmpeg "${ffmpegflags[@]}" -fflags nobuffer -flags low_delay -flush_packets 1 -probesize 32 -analyzeduration 0 -f s16le -ac 2 -ar 48000 - | \
         mpv - --demuxer=rawaudio --demuxer-rawaudio-channels=2 --demuxer-rawaudio-rate=48000 --demuxer-rawaudio-format=s16le --demuxer-readahead-secs=0 \
         --audio-buffer=0 --speed=1.2 --untimed=yes --cache=no --no-osc --profile=low-latency --video-latency-hacks=yes --wayland-disable-vsync=yes \
         --autofit=1280x720 --vf=fps=15 --mute=yes --video=no --really-quiet --title="BSR audio preview" \
