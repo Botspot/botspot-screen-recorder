@@ -423,11 +423,16 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     if [ -z "$device1" ];then
       error "Failed to use pulseaudio to make a null sink! Please refer to any errors above."
     fi
+    
+    # Force unmute the virtual sink, as the OS may restore a previous muted state
+    pactl set-sink-mute virtual_mix 0 2>/dev/null
+
     device2=''
     device3=''
     if [ ! -z "$microphone" ];then
-      #if capturing microphone, set its input volume to 100%
+      #if capturing microphone, set its input volume to 100% and explicitly unmute it
       pactl set-source-volume "$microphone" 100% || error "Failed to set microphone volume for '$microphone' to 100%"
+      pactl set-source-mute "$microphone" 0 2>/dev/null
       
       #make it an input to this pulseaudio loopback device
       if [ ! -z "$monitor" ];then
@@ -454,8 +459,8 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     #only if audio is enabled should we tell wf-recorder to record this monitor
     #this way if audio capture is disabled it does not fallback to the default monitor (see issue #5)
     recorder_flags+=(--audio=virtual_mix.monitor)
-    #do the same for ffmpeg
-    ffmpegflags+=(-f pulse -i virtual_mix.monitor)
+    #do the same for ffmpeg (increased thread queue reduces the risk of desynced audio)
+    ffmpegflags+=(-f pulse -thread_queue_size 1024 -i virtual_mix.monitor)
   else
     status "not making device1"
   fi
