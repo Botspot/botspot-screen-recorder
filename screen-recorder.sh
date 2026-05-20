@@ -237,6 +237,10 @@ export -f slurp_function
 
 while true;do #repeat the gui until user exits
   
+  # Reset variables that shouldn't leak between loop iterations
+  ffmpegflags=(-loglevel warning -hide_banner)
+  cleanup_commands=""
+  
   #set default values before reading config file
   downscale_enabled=FALSE
   mirror_enabled=TRUE
@@ -481,27 +485,36 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     #webcam only recording mode
     rm -f /tmp/mjpeg_pipe
     mkfifo /tmp/mjpeg_pipe || exit 1
-    
+
     #use mjpeg if the webcam supports it, for the preview to work well
     if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
       ffmpeg_webcam_input_flags+=(-input_format mjpeg)
     fi
-    
+
+    # Determine input mapping: If audio is enabled, pulse is input 0 and webcam is input 1.
+    if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+      v_map="1:v"
+      a_args=(-map 0:a -c:a aac)
+    else
+      v_map="0:v"
+      a_args=() # Empty array, no audio mapping or codec needed
+    fi
+
     #set to true to encode as mjpeg (no conversion), otherwise encode as h264
     if false;then
       ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-      -map 0:v -map 1:a -c:v copy -c:a aac "$output_file" \
+      -map "$v_map" "${a_args[@]}" -c:v copy "$output_file" \
       -f mpegts /tmp/mjpeg_pipe &>/dev/null &
     else
       if [ $mode == normal ];then
         #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
         ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-        -map 0:v -map 1:a -c:v libx264 -preset ultrafast -crf $crf -c:a aac -f matroska "$output_file" \
-        -map 0:v -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
+        -map "$v_map" "${a_args[@]}" -c:v libx264 -preset ultrafast -crf $crf -f matroska "$output_file" \
+        -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
       elif [ $mode == preview ];then
         #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
         ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-        -map 0:v -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+        -map "$v_map" -c:v copy -an -f matroska /tmp/mjpeg_pipe &
       fi
     fi
     recorder_pid=$!
@@ -574,7 +587,18 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
         --button=Close:0
       
     else #user wants to stop the recording, so stop it now so the file is valid
+      status "Stopping recording and saving file..."
+      
+      # Send a single interrupt signal and wait for FFmpeg to finish saving the file
+      kill -INT $recorder_pid 2>/dev/null
+      wait $recorder_pid 2>/dev/null
+      
+      # Run the remaining cleanup commands (PulseAudio, mpv)
       eval "$cleanup_commands"
+      
+      # Clear the variable so the eval at the bottom of the loop doesn't double-kill
+      cleanup_commands="" 
+
       if [ "$reencode" == TRUE ] && [ ! -z "$monitor$webcam" ];then
         #re-encode the output file if enabled and output file is a video
         status "Re-encoding the video to improve file size..."
