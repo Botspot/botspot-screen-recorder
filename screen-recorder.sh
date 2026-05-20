@@ -323,10 +323,10 @@ output_file='$output_file'
 reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so the config values are also sent to stdout
   
   #convert pretty names to machine names ("none" option is converted to empty value)
-  microphone="$(list_microphones | grep -m1 "$microphone"'$' | awk -F'\t' '{print $1}')"
-  [ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep "$webcam"'$' | awk -F'\t' '{print $1}')" | grep "$(echo "$webcam" | awk '{print $NF}')" | awk -F'\t' '{print $1}')"
-  webcam="$(list_webcams | grep -m1 "$webcam"'$' | awk -F'\t' '{print $1}')"
-  monitor="$(list_monitors | grep "$monitor"'$' | awk -F'\t' '{print $1}')"
+  microphone="$(list_microphones | grep -m1 $'\t'"$microphone"'$' | awk -F'\t' '{print $1}')"
+  [ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep $'\t'"$webcam"'$' | awk -F'\t' '{print $1}')" | grep -m1 $'\t'"$(echo "$webcam" | awk '{print $NF}')"'$' | awk -F'\t' '{print $1}')"
+  webcam="$(list_webcams | grep -m1 $'\t'"$webcam"'$' | awk -F'\t' '{print $1}')"
+  monitor="$(list_monitors | grep $'\t'"$monitor"'$' | awk -F'\t' '{print $1}')"
   output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
   
   #variables to hold flags passed to mpv and wf-recorder
