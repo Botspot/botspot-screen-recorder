@@ -4,7 +4,7 @@ IFS=$'\n'
 DIRECTORY="$(readlink -f "$(dirname "$0")")"
 
 yadflags=(--class media-record --name media-record --center --window-icon=media-record --title="Botspot's Screen Recorder" --separator='\n')
-ffmpegflags=(-loglevel warning -hide_banner)
+ffmpeg_main_flags=(-loglevel warning -hide_banner)
 
 error() { #red text and exit 1
   echo -e "\e[91m$1\e[0m" 1>&2
@@ -237,10 +237,6 @@ export -f slurp_function
 
 while true;do #repeat the gui until user exits
   
-  # Reset variables that shouldn't leak between loop iterations
-  ffmpegflags=(-loglevel warning -hide_banner)
-  cleanup_commands=""
-  
   #set default values before reading config file
   downscale_enabled=FALSE
   mirror_enabled=TRUE
@@ -460,9 +456,10 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     #this way if audio capture is disabled it does not fallback to the default monitor (see issue #5)
     recorder_flags+=(--audio=virtual_mix.monitor)
     #do the same for ffmpeg (increased thread queue reduces the risk of desynced audio)
-    ffmpegflags+=(-f pulse -thread_queue_size 1024 -i virtual_mix.monitor)
+    ffmpeg_audio_flags=(-f pulse -thread_queue_size 1024 -i virtual_mix.monitor)
   else
-    status "not making device1"
+    status "not making virtual_mix.monitor"
+    ffmpeg_audio_flags=()
   fi
   
   #ensure containing directory for output file
@@ -507,18 +504,18 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
 
     #set to true to encode as mjpeg (no conversion), otherwise encode as h264
     if false;then
-      ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+      ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
       -map "$v_map" "${a_args[@]}" -c:v copy "$output_file" \
       -f mpegts /tmp/mjpeg_pipe &>/dev/null &
     else
       if [ $mode == normal ];then
         #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
-        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+        ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
         -map "$v_map" "${a_args[@]}" -c:v libx264 -preset ultrafast -crf $crf -f matroska "$output_file" \
         -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
       elif [ $mode == preview ];then
         #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
-        ffmpeg "${ffmpegflags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+        ffmpeg "${ffmpeg_main_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
         -map "$v_map" -c:v copy -an -f matroska /tmp/mjpeg_pipe &
       fi
     fi
@@ -533,11 +530,11 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     recording_mode="audio only"
     #audio only recording mode
     if [ $mode == normal ];then
-      ffmpeg "${ffmpegflags[@]}" -y -c:a aac "$output_file" &
+      ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -c:a aac "$output_file" &
       recorder_pid=$!
     elif [ $mode == preview ];then
       #preview audio stereo graph with minimum latency
-      ffmpeg "${ffmpegflags[@]}" -fflags nobuffer -flags low_delay -flush_packets 1 -probesize 32 -analyzeduration 0 -f s16le -ac 2 -ar 48000 - | \
+      ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -fflags nobuffer -flags low_delay -flush_packets 1 -probesize 32 -analyzeduration 0 -f s16le -ac 2 -ar 48000 - | \
         mpv - --demuxer=rawaudio --demuxer-rawaudio-channels=2 --demuxer-rawaudio-rate=48000 --demuxer-rawaudio-format=s16le --demuxer-readahead-secs=0 \
         --audio-buffer=0 --speed=1.2 --untimed=yes --cache=no --no-osc --profile=low-latency --video-latency-hacks=yes --wayland-disable-vsync=yes \
         --autofit=1280x720 --vf=fps=15 --mute=yes --video=no --really-quiet --title="BSR audio preview" \
@@ -610,7 +607,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
         
         rm -f "$output_file".tmp
         mv -f "$output_file" "$output_file".tmp
-        ffmpeg "${ffmpegflags[@]}" -nostats -progress /dev/stdout -y -i "$output_file".tmp \
+        ffmpeg "${ffmpeg_main_flags[@]}" -nostats -progress /dev/stdout -y -i "$output_file".tmp \
           -c:v libx264 -preset slower -crf $crf -c:a copy -f matroska "$output_file" | \
           while read line ;do
             if [[ "$line" == out_time=* ]];then
@@ -632,7 +629,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
           #move back original file
           rm -f "$output_file"
           mv -f "$output_file".tmp "$output_file"
-          error "Re-encoding the video file failed! Please refer to errors above."
+          error "Re-encoding the video file failed! Please refer to errors above. Your uncompressed video is saved to $output_file"
         fi
       fi
     fi
@@ -658,5 +655,6 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   
   #between loop repeats, ensure A/V processes and pulse sinks are cleaned up
   eval "$cleanup_commands"
+  cleanup_commands=""
   
 done
