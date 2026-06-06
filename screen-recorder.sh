@@ -62,7 +62,7 @@ list_webcams() { #/dev/video*\tpretty name
   fi
 }
 
-list_monitors() { #HDMI-*\tpretty name
+list_screens() { #HDMI-*\tpretty name
   #find valid, enabled displays
   local line
   local found=
@@ -237,6 +237,8 @@ export -f slurp_function
 
 while true;do #repeat the gui until user exits
   
+  cleanup_commands=""
+  
   #set default values before reading config file
   downscale_enabled=FALSE
   mirror_enabled=TRUE
@@ -258,7 +260,7 @@ while true;do #repeat the gui until user exits
   #main configuration window
   output="$(yad "${yadflags[@]}" --form --align=center \
     --text="<big><b>Botspot's Screen Recorder</b>       <a href="\""https://github.com/sponsors/botspot"\"">Donate</a></big>" \
-    --field='Screen::CB' "$(list_monitors | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$monitor" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
+    --field='Screen::CB' "$(list_screens | awk -F'\t' '{print $2}' | sed '$ s/$/\nnone/' | favor_option "$screen" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
     --field='Downscale screen 2X':CHK "$downscale_enabled" \
     --field="Frame rate::CBE" "$(echo -e 'maximum\n30\n20\n15\n10\n5\n1' | favor_option_gently "$fps" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
     --field="Quality::CB" "$(echo -e 'Medium\nLow\nHigh' | favor_option "$quality" | tr '\n' '!' | sed 's/!$// ; s/^!//')" \
@@ -286,7 +288,7 @@ while true;do #repeat the gui until user exits
   
   output="$(echo "$output" | grep -vF 'Opening in existing browser session.')" #workaround chromium output from donate button shifting everything down a line
   
-  monitor="$(echo "$output" | sed -n 1p)"
+  screen="$(echo "$output" | sed -n 1p)"
   downscale_enabled="$(echo "$output" | sed -n 2p)"
   fps="$(echo "$output" | sed -n 3p)"
   quality="$(echo "$output" | sed -n 4p)"
@@ -306,7 +308,7 @@ while true;do #repeat the gui until user exits
   fi
   
   #save gui selected values to conf file before making them machine readible
-  echo "monitor='$monitor'
+  echo "screen='$screen'
 downscale_enabled='$downscale_enabled'
 geometry='$geometry'
 quality='$quality'
@@ -322,7 +324,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   microphone="$(list_microphones | grep -m1 $'\t'"$microphone"'$' | awk -F'\t' '{print $1}')"
   [ "$webcam" != none ] && webcam_resolution="$(list_resolutions "$(list_webcams | grep $'\t'"$webcam"'$' | awk -F'\t' '{print $1}')" | grep -m1 $'\t'"$(echo "$webcam" | awk '{print $NF}')"'$' | awk -F'\t' '{print $1}')"
   webcam="$(list_webcams | grep -m1 $'\t'"$webcam"'$' | awk -F'\t' '{print $1}')"
-  monitor="$(list_monitors | grep $'\t'"$monitor"'$' | awk -F'\t' '{print $1}')"
+  screen="$(list_screens | grep $'\t'"$screen"'$' | awk -F'\t' '{print $1}')"
   output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
   
   #variables to hold flags passed to mpv and wf-recorder
@@ -361,8 +363,8 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   recorder_flags+=(-p crf=$crf)
   
   #parse inputs - screen
-  if [ ! -z "$monitor" ];then
-    recorder_flags+=(-o "$monitor")
+  if [ ! -z "$screen" ];then
+    recorder_flags+=(-o "$screen")
   fi
   
   #parse inputs - set a webcam resolution now
@@ -398,12 +400,15 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   if [ $mode == preview ];then
     
     #disable making pulse sink and audio capture for the preview, unless we're previewing audio only (these values are not saved to config file)
-    if [ ! -z "$monitor" ] || [ ! -z "$monitor" ];then
+    if [ ! -z "$screen" ] || [ ! -z "$webcam" ];then
       sysaudio_enabled=FALSE
       microphone=''
     fi
     
-    #write video to a pipe which we will preview
+    #try to reduce preview latency
+    recorder_flags+=(-p tune=zerolatency)
+    
+    #write video to a pipe which we will preview with mpv
     rm -f /tmp/preview_pipe
     mkfifo /tmp/preview_pipe || exit 1
     output_file=/tmp/preview_pipe
@@ -431,7 +436,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       pactl set-source-mute "$microphone" 0 2>/dev/null
       
       #make it an input to this pulseaudio loopback device
-      if [ ! -z "$monitor" ];then
+      if [ ! -z "$screen" ];then
         #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
         device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
       else
@@ -465,7 +470,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   #ensure containing directory for output file
   mkdir -p "$(dirname "$output_file")"
   
-  if [ ! -z "$monitor" ];then
+  if [ ! -z "$screen" ];then
     #screen recording mode (with or without webcam preview)
     
     #display webcam if enabled
@@ -601,7 +606,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       # Clear the variable so the eval at the bottom of the loop doesn't double-kill
       cleanup_commands="" 
 
-      if [ "$reencode" == TRUE ] && [ ! -z "$monitor$webcam" ];then
+      if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ];then
         #re-encode the output file if enabled and output file is a video
         status "Re-encoding the video to improve file size..."
         
@@ -644,8 +649,12 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     #only preview the screen
      #don't launch a duplicate webcam preview in webcam-only mode
       #audio-only preview is handled in the recording section
-    if [ ! -z "$monitor" ];then
-      mpv /tmp/preview_pipe --title="BSR screen preview" --no-audio --cache=no --no-osc --profile=low-latency --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
+    if [ ! -z "$screen" ];then
+      mpv /tmp/preview_pipe --title="BSR screen preview" --ao=null --audio-file=av://lavfi:anullsrc \
+        --mc=0 --msg-level=all=error --framedrop=decoder \
+        --demuxer-lavf-o=fflags=+nobuffer --demuxer-readahead-secs=0 --cache=no --no-osc \
+        --profile=low-latency --video-latency-hacks=yes \
+        --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
       mpvpid=$!
     fi
     #stop the preview when yad or the recorder stops
@@ -655,6 +664,5 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   
   #between loop repeats, ensure A/V processes and pulse sinks are cleaned up
   eval "$cleanup_commands"
-  cleanup_commands=""
   
 done
