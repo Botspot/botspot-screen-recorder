@@ -30,6 +30,7 @@ BSR has flexible operation modes.
   - Custom video quality (high/medium/low)
   - Downscale the output video by a factor of 2. For example, a 1920x1080 screen or webcam can be encoded as 960x540 video file to reduce filesize and CPU usage.
   - Reduce video file size by 60% without quality reduction, by re-encoding the video file with libx264's `slower` compression preset.
+  - Conversion to MKV, MP4, GIF, WEBP, MP3, WAV is supported
 
 ### Screenshots:
 ![20250214_07h20m18s_grim](https://github.com/user-attachments/assets/a1d0e32c-24ba-472f-9890-72d1745cf9d9)  
