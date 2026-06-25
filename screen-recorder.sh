@@ -139,6 +139,16 @@ unique_filename() { #given a file $1, add a number before the file extension to 
   echo "${dirname}/${name_no_number}$((number+1)).${file_extension}"
 }
 
+process_exists() { #return 0 if the $1 PID is running, otherwise 1
+  [ -z "$1" ] && error "process_exists(): no PID given!"
+  
+  if [ -f "/proc/$1/status" ];then
+    return 0
+  else
+    return 1
+  fi
+}
+
 apt_install=()
 if ! command -v slurp >/dev/null ;then
   apt_install+=(slurp)
@@ -228,6 +238,9 @@ if [ "$localhash" != "$latesthash" ] && [ ! -z "$latesthash" ] && [ ! -z "$local
   fi
 fi
 
+#clean up any accidentally left behind modules from unsafe shutdowns
+for id in $(pactl list modules short | grep 'bsr_audio_mix' | awk '{print $1}'); do pactl unload-module "$id"; done
+
 slurp_function() { #populate the crop field with the output from slurp
   echo -n $1: #if new options are added to YAD, be sure to edit the arg where this function runs!
   slurp
@@ -238,6 +251,7 @@ export -f slurp_function
 while true;do #repeat the gui until user exits
   
   cleanup_commands=""
+  mpv_pid="" #clear this out to prevent false positive detected crashed preview videos
   
   #set default values before reading config file
   downscale_enabled=FALSE
@@ -254,6 +268,8 @@ while true;do #repeat the gui until user exits
   
   #ensure the filename is unique
   output_file="$(unique_filename "$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")")"
+  #yad file browser does not recognize ~/, so it falls back to pwd, so we set the pwd to the parent directory of the file.
+  cd "$(dirname "$output_file")"
   #replace $HOME with ~/ in output_file
   output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
   
@@ -273,7 +289,8 @@ while true;do #repeat the gui until user exits
     --field="Output file::SFL" "$output_file" \
     --field='Optimize file size:CHK' "$reencode" \
     --button="Preview"!view-reveal-symbolic:2 \
-    --button="Start recording"!media-record-symbolic:0)"
+    --button="Start recording"!media-record-symbolic:0 \
+    --file-filter="Supported file formats: .mp3 .wav .mp4 .mkv .gif .webp | *.mp3 *.wav *.mp4 *.mkv *.gif *.webp")"
   case $? in #get button clicked
     0)
       mode=normal
@@ -299,11 +316,13 @@ while true;do #repeat the gui until user exits
   sysaudio_enabled="$(echo "$output" | sed -n 10p)"
   output_file="$(echo "$output" | sed -n 11p)"
   reencode="$(echo "$output" | sed -n 12p)"
+  
+  file_extension="${output_file##*.}"
   if [ -z "$output_file" ];then
     #default filename if unset
     output_file="$(unique_filename "$HOME/Videos/recording.mkv")"
   elif [[ "$output_file" != *'.'* ]];then
-    #enforce file extension
+    #default file extension
     output_file+='.mkv'
   fi
   
@@ -326,6 +345,30 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   webcam="$(list_webcams | grep -m1 $'\t'"$webcam"'$' | awk -F'\t' '{print $1}')"
   screen="$(list_screens | grep $'\t'"$screen"'$' | awk -F'\t' '{print $1}')"
   output_file="$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")"
+  
+  #MKV file used for recording; will be converted into final filetype, or re-encoded if necessary
+  intermediate_output_file="${output_file}.tmp"
+  
+  capturing_audio=FALSE
+  if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+    capturing_audio=TRUE
+  fi
+  capturing_video=FALSE
+  if [ ! -z "$webcam" ] || [ ! -z "$screen" ];then
+    capturing_video=TRUE
+  fi
+  
+  if [[ ! "$file_extension" =~ ^(mp3|wav|mp4|mkv|gif|webp)$ ]];then
+    yad "${yadflags[@]}" --text="Unsupported file format: $file_extension"$'\n'"Supported file formats: .mp3 .wav .mp4 .mkv .gif .webp" --button=OK:0
+    #immediately go back to the top of the loop
+    continue
+  elif [ "$capturing_audio" == TRUE ] && [[ "$file_extension" =~ ^(gif|webp)$ ]];then
+    yad "${yadflags[@]}" --text="You have audio inputs selected, but the .$file_extension file extension only allows video."$'\n'"Please change file formats, or disable audio inputs." --button=OK:0
+    continue
+  elif [ "$capturing_video" == TRUE ] && [[ "$file_extension" =~ ^(mp3|wav)$ ]];then
+    yad "${yadflags[@]}" --text="You have video inputs selected, but the .$file_extension file extension only allows audio."$'\n'"Please change file formats, or disable video inputs." --button=OK:0
+    continue
+  fi
   
   #variables to hold flags passed to mpv and wf-recorder
   mpv_flags=()
@@ -399,10 +442,11 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   #handle preview mode
   if [ $mode == preview ];then
     
-    #disable making pulse sink and audio capture for the preview, unless we're previewing audio only (these values are not saved to config file)
-    if [ ! -z "$screen" ] || [ ! -z "$webcam" ];then
+    #disable making pulse sink and audio capture for video preview, unless we're previewing audio only (these values are not saved to config file)
+    if [ "$capturing_video" == TRUE ];then
       sysaudio_enabled=FALSE
       microphone=''
+      capturing_audio=FALSE
     fi
     
     #try to reduce preview latency
@@ -412,21 +456,22 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     rm -f /tmp/preview_pipe
     mkfifo /tmp/preview_pipe || exit 1
     output_file=/tmp/preview_pipe
+    intermediate_output_file=/tmp/preview_pipe
   fi
   
   #audio handling, if enabled
-  if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+  if [ "$capturing_audio" == TRUE ];then
     #stop easyeffects because it breaks the pipeline for whatever reason and prevents audio capture
     killall easyeffects 2>/dev/null
     
     #make a custom pulseaudio sink that merges microphone and system audio
-    device1="$(pactl load-module module-null-sink sink_name=virtual_mix sink_properties=device.description="Virtual_Mix")"
+    device1="$(pactl load-module module-null-sink sink_name=bsr_audio_mix sink_properties=device.description="bsr_audio_mix")"
     if [ -z "$device1" ];then
       error "Failed to use pulseaudio to make a null sink! Please refer to any errors above."
     fi
     
     # Force unmute the virtual sink, as the OS may restore a previous muted state
-    pactl set-sink-mute virtual_mix 0 2>/dev/null
+    pactl set-sink-mute bsr_audio_mix 0 2>/dev/null
 
     device2=''
     device3=''
@@ -438,16 +483,16 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       #make it an input to this pulseaudio loopback device
       if [ ! -z "$screen" ];then
         #add a 80ms audio latency if recording the screen, to prevent voice from being ahead of on-screen video feed
-        device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix latency_msec=80)"
+        device2="$(pactl load-module module-loopback source="$microphone" sink=bsr_audio_mix latency_msec=80)"
       else
         #not screen recording, so don't add latency
-        device2="$(pactl load-module module-loopback source="$microphone" sink=virtual_mix)"
+        device2="$(pactl load-module module-loopback source="$microphone" sink=bsr_audio_mix)"
       fi
     fi
     
     if [ "$sysaudio_enabled" == TRUE ];then
       #if capturing system audio, make it an input to this pulseaudio monitor device
-      device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=virtual_mix)"
+      device3="$(pactl load-module module-loopback source=pipewiresrc.monitor sink=bsr_audio_mix)"
       #This captures system audio always at 100% regardless of system volume. Bug or feature? You decide.
     fi
     
@@ -459,11 +504,11 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     
     #only if audio is enabled should we tell wf-recorder to record this monitor
     #this way if audio capture is disabled it does not fallback to the default monitor (see issue #5)
-    recorder_flags+=(--audio=virtual_mix.monitor)
+    recorder_flags+=(--audio=bsr_audio_mix.monitor)
     #do the same for ffmpeg (increased thread queue reduces the risk of desynced audio)
-    ffmpeg_audio_flags=(-f pulse -thread_queue_size 1024 -i virtual_mix.monitor)
+    ffmpeg_audio_flags=(-f pulse -thread_queue_size 1024 -i bsr_audio_mix.monitor)
   else
-    status "not making virtual_mix.monitor"
+    status "not making bsr_audio_mix.monitor"
     ffmpeg_audio_flags=()
   fi
   
@@ -484,7 +529,13 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     fi
     
     #record screen
-    wf-recorder -y -f "$output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
+    recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
+      wf-recorder -y -f "$intermediate_output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
+      internal_recorder_pid=$!
+      trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
+      wait $internal_recorder_pid
+    }
+    recorder_command &
     recorder_pid=$!
     
   elif [ ! -z "$webcam" ];then
@@ -493,13 +544,13 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     rm -f /tmp/mjpeg_pipe
     mkfifo /tmp/mjpeg_pipe || exit 1
 
-    #use mjpeg if the webcam supports it, for the preview to work well
+    #use mjpeg if the webcam supports it, for optimal preview performance
     if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
       ffmpeg_webcam_input_flags+=(-input_format mjpeg)
     fi
 
     # Determine input mapping: If audio is enabled, pulse is input 0 and webcam is input 1.
-    if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+    if [ "$capturing_audio" == TRUE ];then
       v_map="1:v"
       a_args=(-map 0:a -c:a aac)
     else
@@ -507,35 +558,49 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       a_args=() # Empty array, no audio mapping or codec needed
     fi
 
-    #set to true to encode as mjpeg (no conversion), otherwise encode as h264
-    if false;then
-      ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-      -map "$v_map" "${a_args[@]}" -c:v copy "$output_file" \
-      -f mpegts /tmp/mjpeg_pipe &>/dev/null &
-    else
-      if [ $mode == normal ];then
-        #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
+    recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
+      #set to true to encode as mjpeg (no conversion), otherwise encode as h264
+      if false;then
         ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-        -map "$v_map" "${a_args[@]}" -c:v libx264 -preset ultrafast -crf $crf -f matroska "$output_file" \
-        -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
-      elif [ $mode == preview ];then
-        #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
-        ffmpeg "${ffmpeg_main_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-        -map "$v_map" -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+        -map "$v_map" "${a_args[@]}" -c:v copy "$intermediate_output_file" \
+        -f mpegts /tmp/mjpeg_pipe &>/dev/null &
+      else
+        if [ $mode == normal ];then
+          #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
+          ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+          -map "$v_map" "${a_args[@]}" -c:v libx264 -preset ultrafast -crf $crf -f matroska "$intermediate_output_file" \
+          -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
+        elif [ $mode == preview ];then
+          #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
+          ffmpeg "${ffmpeg_main_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+          -map "$v_map" -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+        fi
       fi
-    fi
+      internal_recorder_pid=$!
+      trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
+      wait $internal_recorder_pid
+    }
+    recorder_command &
     recorder_pid=$!
     
-    #still show webcam
-    mpv /tmp/mjpeg_pipe "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
-    cleanup_commands+=$'\n'"kill $! 2>/dev/null
+    #still show webcam: --loop-playlist=inf makes it stay open and resume playback after ffmpeg is restarted from a pause/resume event
+    mpv /tmp/mjpeg_pipe "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" \
+      --loop-playlist=inf &
+    mpv_pid=$!
+    cleanup_commands+=$'\n'"kill $mpv_pid 2>/dev/null
     rm -f /tmp/mjpeg_pipe"
     
-  elif [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
+  elif [ "$capturing_audio" == TRUE ];then
     recording_mode="audio only"
     #audio only recording mode
     if [ $mode == normal ];then
-      ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -c:a aac "$output_file" &
+      recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
+        ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -c:a aac -f matroska "$intermediate_output_file" &
+        internal_recorder_pid=$!
+        trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
+        wait $internal_recorder_pid
+      }
+      recorder_command &
       recorder_pid=$!
     elif [ $mode == preview ];then
       #preview audio stereo graph with minimum latency
@@ -559,84 +624,192 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   cleanup_commands+=$'\n'"kill -INT $recorder_pid 2>/dev/null"
   trap "$cleanup_commands" EXIT
   
-  mute_function() { #handle mute button click events - get current state from the label, then change the label to the other state while toggling mute
-    if [ "$1" == unmuted ];then
-      pactl set-sink-mute "virtual_mix" 1
-      echo -n 2:muted
-    else
-      pactl set-sink-mute "virtual_mix" 0
-      echo -n 2:unmuted
-    fi
-  }
-  export -f mute_function
-  
-  mute_function=()
-  if [ "$sysaudio_enabled" == TRUE ] || [ ! -z "$microphone" ];then
-    #audio enabled, add mute button
-    mute_function=(--field='Toggle mute!audio-input-mic-muted':FBTN '@bash -c "mute_function %2"' \
-    --field=:RO 'unmuted')
-  fi
-  
   #handle normal recording mode
   if [ $mode == normal ];then
-    yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecording $recording_mode" \
-      --image=media-record --image-on-top --form \
-      "${mute_function[@]}" \
-      --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons &
-    yadpid=$!
-    #run yad as a background process, so that if recorder_pid stops, we can close yad
-    wait -n $recorder_pid $yadpid #wait until either yad is closed or recorder stops
     
-    #if killing yad succeeds, that means recorder was the pid that stopped, so warn the user
-    if kill $yadpid &>/dev/null ;then
-      yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRecording stopped :(\nRun BSR in a terminal to see what the error was." \
-        --image=media-record --image-on-top --form \
-        --button=Close:0
-      
-    else #user wants to stop the recording, so stop it now so the file is valid
-      status "Stopping recording and saving file..."
-      
-      # Send a single interrupt signal and wait for FFmpeg to finish saving the file
-      kill -INT $recorder_pid 2>/dev/null
-      wait $recorder_pid 2>/dev/null
-      
-      # Run the remaining cleanup commands (PulseAudio, mpv)
-      eval "$cleanup_commands"
-      
-      # Clear the variable so the eval at the bottom of the loop doesn't double-kill
-      cleanup_commands="" 
-
-      if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ];then
-        #re-encode the output file if enabled and output file is a video
-        status "Re-encoding the video to improve file size..."
-        
-        rm -f "$output_file".tmp
-        mv -f "$output_file" "$output_file".tmp
-        ffmpeg "${ffmpeg_main_flags[@]}" -nostats -progress /dev/stdout -y -i "$output_file".tmp \
-          -c:v libx264 -preset slower -crf $crf -c:a copy -f matroska "$output_file" | \
-          while read line ;do
-            if [[ "$line" == out_time=* ]];then
-              echo -e '\f'
-              echo "Video compression progress: $line" | sed 's/out_time=//g'
-            elif [ "$line" == progress=end ];then
-              before_size="$(wc -c "$output_file".tmp | awk '{print $1}')"
-              after_size="$(wc -c "$output_file" | awk '{print $1}')"
-              echo -e '\f'
-              echo "Video compressed from $(echo "$before_size" | numfmt --to=iec)B to $(echo "$after_size" | numfmt --to=iec)B - a $((100-after_size*100/before_size))% reduction!" | tee /dev/stderr
-              echo "You can close this window now."
-            fi
-          done | yad "${yadflags[@]}" --text="Optimizing video file size..." --width=600 --text-info --wrap --tail --back=black --fore='#00ccff' --button=Close:0
-        if [ ${PIPESTATUS[0]} == 0 ];then
-          #video was successfully re-encoded
-          status "Re-encoding complete, removing temporary file $output_file.tmp"
-          rm -f "$output_file".tmp
-        else #video was unsuccessfully re-encoded
-          #move back original file
-          rm -f "$output_file"
-          mv -f "$output_file".tmp "$output_file"
-          error "Re-encoding the video file failed! Please refer to errors above. Your uncompressed video is saved to $output_file"
+    #handle pause/resume: ffmpeg and wf-recorder desync audio and video, and the video freezes if the process is stopped and continued.
+    #As a workaround, pausing kills the recorder and resuming starts another recording, then they are all stitched together.
+    
+    pause_function() { #in yad process: handle pause button click events - get current state from the label, then change the label to the other state while toggling pause
+      if [ "$1" == "▶ Recording" ];then
+        echo "pause requested" 1>&2
+        echo -n 2:"⏸ Paused"
+      else
+        echo "resume requested" 1>&2
+        echo -n 2:"▶ Recording"
+      fi
+      #wait for main process to notify that the operation was completed
+      cat "$yad_communication_fifo" >/dev/null
+    }
+    export -f pause_function #make this function available to yad
+    
+    merge_pause_fragment() { #in main process: function used in 2 places to merge a second pause-fragment video file with the main video file
+      if [ -f "${intermediate_output_file}.pausefrag" ];then
+        #use ffmpeg concat filter to merge the videos
+        if echo "file $intermediate_output_file"$'\n'"file ${intermediate_output_file}.pausefrag" | ffmpeg -y -f concat -safe 0 -i /dev/stdin -c copy -f matroska "${intermediate_output_file}.tmp";then
+          #remove both original files, rename this file to the original filename
+          rm -f "$intermediate_output_file" "${intermediate_output_file}.pausefrag"
+          mv "${intermediate_output_file}.tmp" "$intermediate_output_file"
+        else
+          error "failed to join video file fragments from pausing! Your main video file is saved to: $intermediate_output_file Your last pause segment is saved to: ${intermediate_output_file}.pausefrag"
         fi
       fi
+    }
+    
+    currently_paused=no
+    
+    #make a communication pipe to cause a delay between clicking pause, and the status message updating in yad
+    yad_communication_fifo="$(mktemp -u)"
+    mkfifo "$yad_communication_fifo" #make named pipe
+    cleanup_commands+=$'\n'"rm $yad_communication_fifo"
+    export yad_communication_fifo #let pause_function see it
+    
+    while read -t 1 line || true ;do #read input from yad, but also iterate this loop once every second as a watchdog
+      echo "loop received line: $line"
+      if [ -z "$line" ];then
+        #line is empty due to 1-second read time limit - watchdog mode: check if recorder crashed, and warn the user if so
+        if [ $currently_paused == no ] && ! process_exists $recorder_pid ;then
+          #recorder crashed: cleanup, display an error, exit script
+          eval "$cleanup_commands"
+          yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRecording stopped :(\nRun BSR in a terminal to see what the error was." \
+            --image=media-record --image-on-top --form \
+            --button=Close:0
+          exit 1
+        fi
+        
+      else #received non-empty line
+        case "$line" in
+          'yad stopped')
+            status "Stopping recording and saving file..."
+            
+            # Send a single interrupt signal and wait for FFmpeg to finish saving the file
+            kill -INT $recorder_pid 2>/dev/null
+            wait $recorder_pid 2>/dev/null
+            
+            #if the just-recorded video is a pause-fragment, concatenate it to the end of the main video
+            merge_pause_fragment
+            
+            # Run the remaining cleanup commands (PulseAudio, mpv)
+            eval "$cleanup_commands"
+            
+            # Clear the variable so the eval at the bottom of the loop doesn't double-kill
+            cleanup_commands="" 
+            break
+            ;;
+          YAD_PID=*)
+            #remember the yad pid in this parent process so we can kill it later
+            yadpid="$(echo "$line" | awk -F= '{print $2}')"
+            ;;
+          'pause requested')
+            #user clicked pause button in yad
+            
+            #stop recording
+            kill -INT $recorder_pid
+            wait $recorder_pid 2>/dev/null
+            
+            #if the just-recorded video is a pause-fragment, concatenate it to the end of the main video
+            merge_pause_fragment
+            
+            currently_paused=yes #disable the recorder crash watchdog, as we intend for it to be stopped
+            
+            #notify yad that recording is paused
+            echo > "$yad_communication_fifo"
+            ;;
+          'resume requested')
+            
+            #start recording again, this time to our pause-fragment filename
+            intermediate_output_file="${intermediate_output_file}.pausefrag" recorder_command &
+            recorder_pid=$! #remember this new recorder pid
+            
+            currently_paused=no #enable the recorder crash watchdog
+            
+            #notify yad that recording is resumed
+            echo > "$yad_communication_fifo"
+            
+            #fix edge case in webcam-only mode: if ffmpeg is restarted and mpv preview was already closed, it will block recording to the file.
+            #detect this situation and flush the preview pipe to allow successful recording
+            if [ ! -z "$mpv_pid" ] && ! process_exists "$mpv_pid" ;then
+              cat /tmp/mjpeg_pipe >/dev/null &
+              mpv_pid=$!
+              cleanup_commands+=$'\n'"kill $mpv_pid 2>/dev/null"
+            fi
+            ;;
+        esac
+      fi
+      
+    done < <(yad "${yadflags[@]}" --text="<b><big>Botspot's Screen Recorder:</big></b>\nRecording $recording_mode" \
+      --image=media-record --image-on-top --form \
+      --field='Pause recording!media-playback-pause-symbolic':FBTN '@bash -c "pause_function %2"' \
+      --field=:RO '▶ Recording' \
+      --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons 2>&1 & YAD_PID=$!; echo "YAD_PID=$YAD_PID"; wait $YAD_PID; echo 'yad stopped')
+    
+    if { [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ]; } || [ "$file_extension" != "mkv" ];then
+      # process the output file
+      if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
+        conversion_message="Optimizing video and saving as $file_extension..."
+      else
+        conversion_message="Converting video to $file_extension..."
+      fi
+      status "$conversion_message"
+      
+      ffmpeg_post_flags=()
+      if [[ "$file_extension" =~ ^(mp3|wav)$ ]]; then
+        ffmpeg_post_flags+=(-vn)
+      else
+        if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
+          ffmpeg_post_flags+=(-c:v libx264 -preset slower -crf $crf)
+        elif [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]]; then
+          ffmpeg_post_flags+=(-c:v copy)
+        fi
+        
+        if [[ "$file_extension" =~ ^(gif|webp)$ ]]; then
+          ffmpeg_post_flags+=(-loop 0)
+        fi
+        if [[ "$file_extension" == "webp" ]]; then
+          # -lossless 0 is strictly required to prevent OOM memory crashes.
+          ffmpeg_post_flags+=(-c:v libwebp -lossless 0 -compression_level 4 -q:v 50 -loop 0)
+        elif [[ "$file_extension" == "gif" ]]; then
+          # generate optimal palette for high quality gif colors
+          ffmpeg_post_flags+=(-loop 0 -filter_complex "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse")
+        fi
+        if [[ "$file_extension" =~ ^(mp4|mkv)$ ]]; then
+          ffmpeg_post_flags+=(-c:a copy)
+        else
+          ffmpeg_post_flags+=(-an)
+        fi
+      fi
+      
+      ffmpeg "${ffmpeg_main_flags[@]}" -nostats -progress /dev/stdout -y -i "$intermediate_output_file" \
+        "${ffmpeg_post_flags[@]}" "$output_file" | \
+        while read line ;do
+          if [[ "$line" == out_time=* ]];then
+            echo -e '\f'
+            echo "Processing progress: $line" | sed 's/out_time=//g'
+          elif [ "$line" == progress=end ];then
+            before_size="$(wc -c "$intermediate_output_file" 2>/dev/null | awk '{print $1}')"
+            after_size="$(wc -c "$output_file" 2>/dev/null | awk '{print $1}')"
+            [ -z "$before_size" ] && before_size=1
+            [ -z "$after_size" ] && after_size=1
+            echo -e '\f'
+            if [ "$before_size" -lt "$after_size" ];then
+              echo "File processed from $(echo "$before_size" | numfmt --to=iec)B to $(echo "$after_size" | numfmt --to=iec)B - a $((after_size*100/before_size-100))% size increase." | tee /dev/stderr
+            else
+              echo "File processed from $(echo "$before_size" | numfmt --to=iec)B to $(echo "$after_size" | numfmt --to=iec)B - a $((100-after_size*100/before_size))% reduction!" | tee /dev/stderr
+            fi
+            echo "You can close this window now."
+          fi
+        done | yad "${yadflags[@]}" --text="$conversion_message" --width=600 --text-info --wrap --tail --back=black --fore='#00ccff' --button=Close:0
+      if [ ${PIPESTATUS[0]} == 0 ] && [ -s "$output_file" ];then
+        #video was successfully processed
+        status "Processing complete; removing temporary file $intermediate_output_file"
+        rm -f "$intermediate_output_file"
+      else
+        #video was unsuccessfully processed
+        error "Processing the file failed! Please refer to errors above. Your raw video is saved to $intermediate_output_file"
+      fi
+    else
+      #no re-encoding needed, and format is mkv
+      mv -f "$intermediate_output_file" "$output_file"
     fi
     
   #handle preview mode
@@ -651,7 +824,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       #audio-only preview is handled in the recording section
     if [ ! -z "$screen" ];then
       mpv /tmp/preview_pipe --title="BSR screen preview" --ao=null --audio-file=av://lavfi:anullsrc \
-        --mc=0 --msg-level=all=error --framedrop=decoder \
+        --mc=0 --msg-level=all=error --framedrop=vo \
         --demuxer-lavf-o=fflags=+nobuffer --demuxer-readahead-secs=0 --cache=no --no-osc \
         --profile=low-latency --video-latency-hacks=yes \
         --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" &
