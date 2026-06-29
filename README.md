@@ -77,9 +77,11 @@ sudo pacman -S --needed ffmpeg gcc git meson mpv ninja slurp v4l-utils wf-record
 
 ### Update to latest version
 Simply run BSR. It auto-updates using `git pull`.
+- If you wish to disable updates, delete the `install.sh` file.
 
 ### Command-line flags
 There are no command line flags. Go directly use wf-recorder for that. If you think I should add a new option, let me know.
+- Technically, there is one command-line flag: `screen-recorder.sh install` - this just tells it to check for updates and install dependencies, then exit immediately and skip launching the graphical interface. (used by the Pi-Apps installation script, probably useless to you)
 
 ### Keyboard shortcuts
 This is an open discussion. Would you find it useful to launch/start/stop BSR using keyboard shortcuts? Let me know.
@@ -93,4 +95,4 @@ This is meant to become the SimpleScreenRecorder for wlroots. Contact me if you 
 - [ffmpeg](https://ffmpeg.org/) used in the background for conversion and encoding
 
 ### How long did it take to write BSR?
-Just one night of coding nonstop instead of sleeping. From start to finish it was roughly 9 hours to write these 300 lines of shell script.
+Just one night of nonstop coding instead of sleeping. It took roughly 9 hours to write the initial 300 lines of shell script.
