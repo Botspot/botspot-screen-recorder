@@ -114,12 +114,13 @@ unique_filename() { #given a file $1, add a number before the file extension to 
   local number="${rawname##*[!0-9]}"
   local name_no_number="${rawname%$number}" #part of basename without the number suffix
   
-  #if no number in filename, and file exists, add number
-  if [ -z "$number" ] && [ ! -f "${dirname}/${name_no_number}.${file_extension}" ];then
-    #no number given, and file does not exist, so return that filename unchanged
+  #if number is provided in filename, and file does not already exist, don't change it
+  #if file does not already exist and lacks a number, don't add a number
+  if [ ! -f "${dirname}/${rawname}.${file_extension}" ];then
     echo "$1"
     return 0
   fi
+  #Otherwise, if no number in filename, or if file exists, add/increment number
   
   #echo -e "basename: $basename\nfile_extension: $file_extension\nrawname: $rawname\ndirname: $dirname\nnumber: $number\nname_no_number: $name_no_number"
   
@@ -147,6 +148,10 @@ process_exists() { #return 0 if the $1 PID is running, otherwise 1
   else
     return 1
   fi
+}
+
+yad_error() {
+  yad "${yadflags[@]}" --text="<b><big>Error</big></b>\n$1" --button=OK:0
 }
 
 apt_install=()
@@ -181,65 +186,16 @@ if ! command -v v4l2-ctl >/dev/null ;then
   apt_install+=(v4l-utils)
 fi
 
-if [ ! -z "${apt_install[*]}" ];then
-  status "Installing dependencies..."
-  sudo apt install -y "${apt_install[@]}" || error "dependency installation failed"
+#updates and dependencies now handled by separate script, see https://github.com/Botspot/botspot-screen-recorder/issues/8
+if [ -f "${DIRECTORY}/install.sh" ];then
+  . "${DIRECTORY}/install.sh"
+elif [ ! -z "${apt_install[*]}" ] ;then
+  #install.sh missing and some dependencies are missing
+  error "Dependencies need to be manually installed: ${apt_install[*]}"
 fi
 
-#install wf-recorder >= 0.5.0                 grep here improves app launch speed
-if ! command -v wf-recorder >/dev/null || (! grep -qF 0.5.0 /usr/local/bin/wf-recorder && [ "$(echo -e "0.5.0\n$(wf-recorder -v | awk '{print $2}')" | sort -V | head -n1)" != 0.5.0 ]);then
-  status "Compiling wf-recorder..."
-  sudo apt install -y libwayland-dev wayland-protocols libavutil-dev libavfilter-dev libavdevice-dev libavcodec-dev libavformat-dev libswscale-dev libpulse-dev libgbm-dev libpipewire-0.3-dev libdrm-dev || error "dependency installation failed"
-  rm -rf wf-recorder
-  git clone https://github.com/ammen99/wf-recorder || error "failed to download wf-recorder git repo"
-  cd wf-recorder
-  meson setup build --prefix=/usr/local --buildtype=release || error "failed to run meson build for wf-recorder"
-  ninja -C build || error "failed to run ninja -C build for wf-recorder"
-  sudo ninja -C build install || error "failed to run sudo ninja -C build install for wf-recorder"
-fi
-
-#add menu launcher
-if [ ! -f ~/.local/share/applications/bsr.desktop ];then
-  mkdir -p ~/.local/share/applications
-  echo "[Desktop Entry]
-Version=1.0
-Name=Botspot Screen Recorder
-GenericName=Screen/Webcam Recording Software
-Comment=Screen/Webcam/Audio Recorder for Wayland
-Exec=$0
-Icon=media-record
-Terminal=false
-Type=Application
-Categories=AudioVideo;Recorder;
-StartupNotify=true
-StartupWMClass=media-record" > ~/.local/share/applications/bsr.desktop
-  echo "Created menu launcher file at ~/.local/share/applications/bsr.desktop"
-fi
-
-#exit now if given 'install' flag - for use in pi-apps
-[ "$1" == install ] && exit 0
-
-#check for updates
-localhash="$(cd "$DIRECTORY" ; git rev-parse HEAD)"
-latesthash="$(git ls-remote https://github.com/Botspot/botspot-screen-recorder HEAD | awk '{print $1}')"
-if [ "$localhash" != "$latesthash" ] && [ ! -z "$latesthash" ] && [ ! -z "$localhash" ];then
-  echo "Auto-updating BSR for the latest features and improvements..."
-  (cd "$DIRECTORY"
-  git restore . #abandon changes to tracked files (otherwise users who modified this script are left behind)
-  git -c color.ui=always pull | cat #piping through cat makes git noninteractive
-  exit "${PIPESTATUS[0]}")
-  
-  if [ $? == 0 ];then
-    echo "git pull finished. Reloading script..."
-    "$DIRECTORY/screen-recorder.sh" "$@"
-    exit $?
-  else
-    echo "git pull failed. Continuing..."
-  fi
-fi
-
-#clean up any accidentally left behind modules from unsafe shutdowns
-for id in $(pactl list modules short | grep 'bsr_audio_mix' | awk '{print $1}'); do pactl unload-module "$id"; done
+#clean up any accidentally left behind audio modules from unsafe shutdowns
+for id in $(pactl list modules short | grep 'bsr_audio_mix' | awk '{print $1}'); do pactl unload-module "$id"; done &
 
 slurp_function() { #populate the crop field with the output from slurp
   echo -n $1: #if new options are added to YAD, be sure to edit the arg where this function runs!
@@ -247,6 +203,9 @@ slurp_function() { #populate the crop field with the output from slurp
   true
 }
 export -f slurp_function
+
+#run everything inside the cleanup_commands, at its current value at the time of the trap triggering
+trap 'eval "$cleanup_commands"' EXIT
 
 while true;do #repeat the gui until user exits
   
@@ -269,7 +228,10 @@ while true;do #repeat the gui until user exits
   #ensure the filename is unique
   output_file="$(unique_filename "$(echo "$output_file" | sed "s+\~/+$HOME/+g ; s+\./+$PWD+g")")"
   #yad file browser does not recognize ~/, so it falls back to pwd, so we set the pwd to the parent directory of the file.
-  cd "$(dirname "$output_file")"
+  if [ -d "$(dirname "$output_file")" ];then
+    #skip this if the directory in the config file does not exist anymore
+    cd "$(dirname "$output_file")"
+  fi
   #replace $HOME with ~/ in output_file
   output_file="$(echo "$output_file" | sed "s+^${HOME}/+~/+g")"
   
@@ -358,15 +320,25 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     capturing_video=TRUE
   fi
   
+  #check for invalid combinations
   if [[ ! "$file_extension" =~ ^(mp3|wav|mp4|mkv|gif|webp)$ ]];then
-    yad "${yadflags[@]}" --text="Unsupported file format: $file_extension"$'\n'"Supported file formats: .mp3 .wav .mp4 .mkv .gif .webp" --button=OK:0
+    yad_error "Unsupported file format: $file_extension"$'\n'"Supported file formats: .mp3 .wav .mp4 .mkv .gif .webp"
     #immediately go back to the top of the loop
     continue
   elif [ "$capturing_audio" == TRUE ] && [[ "$file_extension" =~ ^(gif|webp)$ ]];then
-    yad "${yadflags[@]}" --text="You have audio inputs selected, but the .$file_extension file extension only allows video."$'\n'"Please change file formats, or disable audio inputs." --button=OK:0
+    yad_error "You have audio inputs selected, but the .$file_extension file extension only allows video."$'\n'"Please change file formats, or disable audio inputs."
     continue
   elif [ "$capturing_video" == TRUE ] && [[ "$file_extension" =~ ^(mp3|wav)$ ]];then
-    yad "${yadflags[@]}" --text="You have video inputs selected, but the .$file_extension file extension only allows audio."$'\n'"Please change file formats, or disable video inputs." --button=OK:0
+    yad_error "You have video inputs selected, but the .$file_extension file extension only allows audio."$'\n'"Please change file formats, or disable video inputs."
+    continue
+  elif [ "$capturing_audio" == FALSE ] && [[ "$file_extension" =~ ^(mp3|wav)$ ]];then
+    yad_error "You have no audio inputs selected, but the .$file_extension file extension only allows audio."$'\n'"Please change file formats, or enable audio inputs."
+    continue
+  elif [ "$capturing_video" == FALSE ] && [[ "$file_extension" =~ ^(gif|webp)$ ]];then
+    yad_error "You have no video inputs selected, but the .$file_extension file extension only allows video."$'\n'"Please change file formats, or enable video inputs."
+    continue
+  elif [ "$capturing_video" == FALSE ] && [ "$capturing_audio" == FALSE ];then
+    yad_error "Refusing to record nothing. :)"
     continue
   fi
   
@@ -453,10 +425,14 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     recorder_flags+=(-p tune=zerolatency)
     
     #write video to a pipe which we will preview with mpv
-    rm -f /tmp/preview_pipe
-    mkfifo /tmp/preview_pipe || exit 1
-    output_file=/tmp/preview_pipe
-    intermediate_output_file=/tmp/preview_pipe
+    if [ -z "$preview_pipe" ];then #don't bother getting a new filename every loop iteration; use the same one in a single session
+      preview_pipe="$(mktemp -u)"
+    fi
+    rm -f "$preview_pipe"
+    mkfifo "$preview_pipe" || exit 1
+    cleanup_commands+=$'\n'"rm -f $preview_pipe"
+    output_file="$preview_pipe"
+    intermediate_output_file="$preview_pipe"
   fi
   
   #audio handling, if enabled
@@ -500,7 +476,6 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     cleanup_commands="pactl unload-module $device1 2>/dev/null
     pactl unload-module $device2 2>/dev/null
     pactl unload-module $device3 2>/dev/null"
-    trap "$cleanup_commands" EXIT
     
     #only if audio is enabled should we tell wf-recorder to record this monitor
     #this way if audio capture is disabled it does not fallback to the default monitor (see issue #5)
@@ -530,10 +505,8 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     
     #record screen
     recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
-      wf-recorder -y -f "$intermediate_output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}" &
-      internal_recorder_pid=$!
-      trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
-      wait $internal_recorder_pid
+      #exec replaces the bash subshell with the target process
+      exec wf-recorder -y -f "$intermediate_output_file" -m matroska -c libx264 -p preset=ultrafast "${recorder_flags[@]}"
     }
     recorder_command &
     recorder_pid=$!
@@ -541,8 +514,12 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
   elif [ ! -z "$webcam" ];then
     recording_mode="webcam only"
     #webcam only recording mode
-    rm -f /tmp/mjpeg_pipe
-    mkfifo /tmp/mjpeg_pipe || exit 1
+    if [ -z "$preview_pipe" ];then #don't bother getting a new filename every loop iteration; use the same one in a single session
+      mjpeg_pipe="$(mktemp -u)"
+    fi
+    rm -f "$mjpeg_pipe"
+    mkfifo "$mjpeg_pipe" || exit 1
+    cleanup_commands+=$'\n'"rm -f $preview_pipe"
 
     #use mjpeg if the webcam supports it, for optimal preview performance
     if v4l2-ctl --device="$webcam" --list-formats-ext | grep -q MJPG ;then
@@ -561,44 +538,39 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
       #set to true to encode as mjpeg (no conversion), otherwise encode as h264
       if false;then
-        ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+        exec ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
         -map "$v_map" "${a_args[@]}" -c:v copy "$intermediate_output_file" \
-        -f mpegts /tmp/mjpeg_pipe &>/dev/null &
+        -f mpegts "$mjpeg_pipe" &>/dev/null
       else
         if [ $mode == normal ];then
           #record webcam mode: encode as h264 for file, keep original mjpeg stream for mpv preview; make the preview pipe non-fatal, so recording continues if the preview window is closed
-          ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+          exec ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
           -map "$v_map" "${a_args[@]}" -c:v libx264 -preset ultrafast -crf $crf -f matroska "$intermediate_output_file" \
-          -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee /tmp/mjpeg_pipe >/dev/null) &
+          -map "$v_map" -c:v copy -an -f matroska >(trap '' PIPE; tee "$mjpeg_pipe" >/dev/null)
         elif [ $mode == preview ];then
           #just do webcam preview only - avoid encoding data for /dev/null, and here we want to stop streaming when mpv closes
-          ffmpeg "${ffmpeg_main_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
-          -map "$v_map" -c:v copy -an -f matroska /tmp/mjpeg_pipe &
+          exec ffmpeg "${ffmpeg_main_flags[@]}" -y -f v4l2 "${ffmpeg_webcam_input_flags[@]}" -i "$webcam" \
+          -map "$v_map" -c:v copy -an -f matroska "$mjpeg_pipe"
         fi
       fi
-      internal_recorder_pid=$!
-      trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
-      wait $internal_recorder_pid
     }
     recorder_command &
     recorder_pid=$!
     
     #still show webcam: --loop-playlist=inf makes it stay open and resume playback after ffmpeg is restarted from a pause/resume event
-    mpv /tmp/mjpeg_pipe "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" \
+    mpv "$mjpeg_pipe" "${mpv_flags[@]}" "${hflip_flag[@]}" --title="BSR webcam feed" --no-audio --profile=low-latency --untimed=yes --video-latency-hacks=yes --wayland-disable-vsync=yes --autofit=1280x720 --script="${DIRECTORY}/webcam-view.lua" \
       --loop-playlist=inf &
     mpv_pid=$!
     cleanup_commands+=$'\n'"kill $mpv_pid 2>/dev/null
-    rm -f /tmp/mjpeg_pipe"
+    rm -f "$mjpeg_pipe""
     
   elif [ "$capturing_audio" == TRUE ];then
     recording_mode="audio only"
     #audio only recording mode
     if [ $mode == normal ];then
       recorder_command() { #define a function, so this can easily be re-run later for pause/resume with a different $intermediate_output_file
-        ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -c:a aac -f matroska "$intermediate_output_file" &
-        internal_recorder_pid=$!
-        trap "kill -INT $internal_recorder_pid 2>/dev/null" EXIT
-        wait $internal_recorder_pid
+        #exec replaces the bash subshell with the target process
+        exec ffmpeg "${ffmpeg_main_flags[@]}" "${ffmpeg_audio_flags[@]}" -y -c:a aac -f matroska "$intermediate_output_file"
       }
       recorder_command &
       recorder_pid=$!
@@ -615,14 +587,12 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     fi
     
   else
-    yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRefusing to record nothing. :)" \
-      --button=Close:0
+    #refusing to record nothing - this case should never be reached because of a yad popup earlier
     continue #go back to start of the loop; no cleanup necessary
   fi
   status "BSR recording mode: $recording_mode"
   
   cleanup_commands+=$'\n'"kill -INT $recorder_pid 2>/dev/null"
-  trap "$cleanup_commands" EXIT
   
   #handle normal recording mode
   if [ $mode == normal ];then
@@ -646,7 +616,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     merge_pause_fragment() { #in main process: function used in 2 places to merge a second pause-fragment video file with the main video file
       if [ -f "${intermediate_output_file}.pausefrag" ];then
         #use ffmpeg concat filter to merge the videos
-        if echo "file $intermediate_output_file"$'\n'"file ${intermediate_output_file}.pausefrag" | ffmpeg -y -f concat -safe 0 -i /dev/stdin -c copy -f matroska "${intermediate_output_file}.tmp";then
+        if echo "file '$intermediate_output_file'"$'\n'"file '${intermediate_output_file}.pausefrag'" | ffmpeg -y -f concat -safe 0 -i /dev/stdin -c copy -f matroska "${intermediate_output_file}.tmp";then
           #remove both original files, rename this file to the original filename
           rm -f "$intermediate_output_file" "${intermediate_output_file}.pausefrag"
           mv "${intermediate_output_file}.tmp" "$intermediate_output_file"
@@ -665,12 +635,12 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
     export yad_communication_fifo #let pause_function see it
     
     while read -t 1 line || true ;do #read input from yad, but also iterate this loop once every second as a watchdog
-      echo "loop received line: $line"
       if [ -z "$line" ];then
         #line is empty due to 1-second read time limit - watchdog mode: check if recorder crashed, and warn the user if so
         if [ $currently_paused == no ] && ! process_exists $recorder_pid ;then
           #recorder crashed: cleanup, display an error, exit script
           eval "$cleanup_commands"
+          cleanup_commands=""
           yad "${yadflags[@]}" --text="<b><big>Error</big></b>\nRecording stopped :(\nRun BSR in a terminal to see what the error was." \
             --image=media-record --image-on-top --form \
             --button=Close:0
@@ -678,6 +648,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
         fi
         
       else #received non-empty line
+        echo "loop received line: $line"
         case "$line" in
           'yad stopped')
             status "Stopping recording and saving file..."
@@ -729,8 +700,8 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
             #fix edge case in webcam-only mode: if ffmpeg is restarted and mpv preview was already closed, it will block recording to the file.
             #detect this situation and flush the preview pipe to allow successful recording
             if [ ! -z "$mpv_pid" ] && ! process_exists "$mpv_pid" ;then
-              cat /tmp/mjpeg_pipe >/dev/null &
-              mpv_pid=$!
+              cat "$mjpeg_pipe" >/dev/null &
+              mpv_pid=$! #reassign the killed mpv pid to this cat process
               cleanup_commands+=$'\n'"kill $mpv_pid 2>/dev/null"
             fi
             ;;
@@ -743,12 +714,12 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       --field=:RO '▶ Recording' \
       --field=$'\n<big>                      Stop recording                      </big>\n':FBTN 'bash -c "kill $YAD_PID"' --no-buttons 2>&1 & YAD_PID=$!; echo "YAD_PID=$YAD_PID"; wait $YAD_PID; echo 'yad stopped')
     
-    if { [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ]; } || [ "$file_extension" != "mkv" ];then
+    if { [ "$reencode" == TRUE ] && [ "$capturing_video" == TRUE ]; } || [ "$file_extension" != "mkv" ];then
       # process the output file
-      if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
-        conversion_message="Optimizing video and saving as $file_extension..."
+      if [ "$reencode" == TRUE ] && [ "$capturing_video" == TRUE ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
+        conversion_message="Optimizing video..."
       else
-        conversion_message="Converting video to $file_extension..."
+        conversion_message="Converting to .$file_extension..."
       fi
       status "$conversion_message"
       
@@ -756,22 +727,46 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
       if [[ "$file_extension" =~ ^(mp3|wav)$ ]]; then
         ffmpeg_post_flags+=(-vn)
       else
-        if [ "$reencode" == TRUE ] && [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
+        if [ "$reencode" == TRUE ] && [ "$capturing_video" == TRUE ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]];then
           ffmpeg_post_flags+=(-c:v libx264 -preset slower -crf $crf)
-        elif [ ! -z "$screen$webcam" ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]]; then
+        elif [ "$capturing_video" == TRUE ] && [[ "$file_extension" =~ ^(mp4|mkv)$ ]]; then
           ffmpeg_post_flags+=(-c:v copy)
         fi
         
         if [[ "$file_extension" =~ ^(gif|webp)$ ]]; then
           ffmpeg_post_flags+=(-loop 0)
         fi
+        
         if [[ "$file_extension" == "webp" ]]; then
           # -lossless 0 is strictly required to prevent OOM memory crashes.
-          ffmpeg_post_flags+=(-c:v libwebp -lossless 0 -compression_level 4 -q:v 50 -loop 0)
+          case "$quality" in
+            High)
+              ffmpeg_post_flags+=(-c:v libwebp -lossless 0 -compression_level 6 -q:v 80)
+              ;;
+            Medium)
+              ffmpeg_post_flags+=(-c:v libwebp -lossless 0 -compression_level 4 -q:v 50)
+              ;;
+            Low)
+              ffmpeg_post_flags+=(-c:v libwebp -lossless 0 -compression_level 2 -q:v 20)
+              ;;
+          esac
         elif [[ "$file_extension" == "gif" ]]; then
-          # generate optimal palette for high quality gif colors
-          ffmpeg_post_flags+=(-loop 0 -filter_complex "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse")
+          case "$quality" in
+            High)
+              # generate optimal palette with advanced dithering for high quality
+              ffmpeg_post_flags+=(-filter_complex "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5")
+              ;;
+            Medium)
+              # default palette generation
+              ffmpeg_post_flags+=(-filter_complex "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse")
+              ;;
+            Low)
+              # reduce maximum colors and disable dithering for smaller file sizes
+              ffmpeg_post_flags+=(-filter_complex "split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=none")
+              ;;
+          esac
         fi
+        
         if [[ "$file_extension" =~ ^(mp4|mkv)$ ]]; then
           ffmpeg_post_flags+=(-c:a copy)
         else
@@ -823,7 +818,7 @@ reencode='$reencode'" | tee ~/.config/botspot-screen-recorder.conf #use tee so t
      #don't launch a duplicate webcam preview in webcam-only mode
       #audio-only preview is handled in the recording section
     if [ ! -z "$screen" ];then
-      mpv /tmp/preview_pipe --title="BSR screen preview" --ao=null --audio-file=av://lavfi:anullsrc \
+      mpv "$preview_pipe" --title="BSR screen preview" --ao=null --audio-file=av://lavfi:anullsrc \
         --mc=0 --msg-level=all=error --framedrop=vo \
         --demuxer-lavf-o=fflags=+nobuffer --demuxer-readahead-secs=0 --cache=no --no-osc \
         --profile=low-latency --video-latency-hacks=yes \
