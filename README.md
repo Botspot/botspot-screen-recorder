@@ -89,6 +89,9 @@ This is an open discussion. Would you find it useful to launch/start/stop BSR us
 # Feedback requested!!
 This is meant to become the SimpleScreenRecorder for wlroots. Contact me if you want to see a feature or option added, or if anything is not working as expected.
 
+# Seeking help to expand to more Wayland compositors!
+Expanding BSR's capabilities to record Gnome, Kwin, and other non-wlroots Wayland DEs makes good sense, and this has already been requested [here](https://github.com/Botspot/botspot-screen-recorder/issues/9#issue-4773527622) and [here](https://github.com/Botspot/botspot-screen-recorder/issues/10#issuecomment-4947093537). If you are interested in helping with this, feel free to reach out and offer assistance, or open a pull request with proposed changes to implement this.
+
 ### Notable open source projects used in BSR:
 - [MPV](https://github.com/mpv-player/mpv) for the on-screen webcam feed
 - [wf-recorder](https://github.com/ammen99/wf-recorder) for recording the screen
